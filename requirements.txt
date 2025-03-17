@@ -1,0 +1,10 @@
+aiohttp
+aiofiles
+discord.py
+numpy
+requests
+pillow
+iso3166
+pypinyin
+opencv-python
+iso3166
