@@ -1,7 +1,7 @@
+import os
+import sys
 import cv2
 import numpy as np
-from PIL import Image
-
 
 def xyz2lonlat(xyz):
     atan2 = np.arctan2
@@ -20,20 +20,28 @@ def xyz2lonlat(xyz):
     out = np.concatenate(lst, axis=-1)
     return out
 
-
 def lonlat2XY(lonlat, shape):
     X = (lonlat[..., 0:1] / (2 * np.pi) + 0.5) * (shape[1] - 1)
     Y = (lonlat[..., 1:] / (np.pi) + 0.5) * (shape[0] - 1)
     lst = [X, Y]
     out = np.concatenate(lst, axis=-1)
 
-    return out
-
+    return out 
 
 class Equirectangular:
-    def __init__(self, img: Image.Image):
-        self._img = cv2.cvtColor(np.array(img), cv2.COLOR_RGBA2BGR if img.mode == "RGBA" else cv2.COLOR_RGB2BGR)
-        self._height, self._width, _ = self._img.shape
+    def __init__(self, img_input):
+        if isinstance(img_input, str):
+            # Original behavior - load from file
+            self._img = cv2.imread(img_input, cv2.IMREAD_COLOR)
+        else:
+            # New behavior - accept numpy array directly
+            self._img = img_input
+        [self._height, self._width, _] = self._img.shape
+        #cp = self._img.copy()  
+        #w = self._width
+        #self._img[:, :w/8, :] = cp[:, 7*w/8:, :]
+        #self._img[:, w/8:, :] = cp[:, :7*w/8, :]
+    
 
     def GetPerspective(self, FOV, THETA, PHI, height, width):
         #
@@ -44,12 +52,12 @@ class Equirectangular:
         cx = (width - 1) / 2.0
         cy = (height - 1) / 2.0
         K = np.array([
-            [f, 0, cx],
-            [0, f, cy],
-            [0, 0, 1],
-        ], np.float32)
+                [f, 0, cx],
+                [0, f, cy],
+                [0, 0,  1],
+            ], np.float32)
         K_inv = np.linalg.inv(K)
-
+        
         x = np.arange(width)
         y = np.arange(height)
         x, y = np.meshgrid(x, y)
@@ -63,8 +71,8 @@ class Equirectangular:
         R2, _ = cv2.Rodrigues(np.dot(R1, x_axis) * np.radians(PHI))
         R = R2 @ R1
         xyz = xyz @ R.T
-        lonlat = xyz2lonlat(xyz)
+        lonlat = xyz2lonlat(xyz) 
         XY = lonlat2XY(lonlat, shape=self._img.shape).astype(np.float32)
         persp = cv2.remap(self._img, XY[..., 0], XY[..., 1], cv2.INTER_CUBIC, borderMode=cv2.BORDER_WRAP)
 
-        return Image.fromarray(cv2.cvtColor(persp, cv2.COLOR_BGR2RGBA))
+        return persp

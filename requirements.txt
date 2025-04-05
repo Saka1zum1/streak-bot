@@ -1,10 +1,7 @@
-aiohttp
-aiofiles
 discord.py
-numpy
-requests
 pillow
-iso3166
+numpy
+aiohttp
+opencv-python-headless
+psycopg2-binary==2.9.9
 pypinyin
-opencv-python
-iso3166

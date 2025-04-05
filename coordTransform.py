@@ -189,6 +189,9 @@ def bd09mc_to_gcj02(x, y):
     bd09 = convert_mc2ll(x, y)
     return bd09_to_gcj02(bd09[0], bd09[1])
 
+def bd09mc_to_wgs84(x, y):
+    bd09 = convert_mc2ll(x, y)
+    return bd09_to_wgs84(bd09[0], bd09[1])
 
 def out_of_china(lng, lat):
     return not (lng > 73.66 and lng < 135.05 and lat > 3.86 and lat < 53.55)
