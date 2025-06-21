@@ -1,7 +1,14 @@
 discord.py
+requests
+scipy
 pillow
+pillow-heif
 numpy
 aiohttp
 opencv-python-headless
+py360convert
 psycopg2-binary==2.9.9
+protobuf~=4.21.9
+pycryptodome
+python-dotenv
 pypinyin

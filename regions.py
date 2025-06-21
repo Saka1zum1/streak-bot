@@ -2,337 +2,47 @@ import logging
 
 # Add your own countries/subdivisions if you wish to generalize
 REGIONS = {
-    "ru": {
-        "Respublika Adygeya": {
-            "aliases": ["Republic of Adygea", "Adygea", "Adygeya", "Adyghea", "Adygheia", "AD", "ADY"]
-        },
-        "Respublika Altay": {
-            "aliases": ["Republic of Altai", "Altai Republic", "Gorniy Altai", "Gorny Altai", "AL", "Gorno"]
-        },
-        "Bashkortostan Republic": {
-            "aliases": ["Republic of Bashkortostan", "Bashkiria", "Bashkortostan", "Bashkir", "BA", "bash", "bashkort",
-                        "ufa"]
-        },
-        "Respublika Buryatiya": {
-            "aliases": ["Republic of Buryatia", "Buryatia", "Buryat", "Buryatiya", "BU", "buryat", "Majin Buu", "Buu"]
-        },
-        "Chechenskaya Respublika": {
-            "aliases": ["Chechen Republic", "Chechnya", "Chechenia", "Ichkeria", "Nokhchiyn Respublika", "CE", "chech",
-                        "grozny"]
-        },
-        "Chuvashskaya Respublika": {
-            "aliases": ["Chuvash Republic", "Chuvashia", "Chuvash", "CU", "cheboksary"]
-        },
-        "Dagestan Republic": {
-            "aliases": ["Republic of Dagestan", "Dagestan", "Daghestan", "DA", "Dage", "Dag", "Makhachkala", "Dogestan"]
-        },
-        "Respublika Ingushetiya": {
-            "aliases": ["Republic of Ingushetia", "Ingushetia", "Ingushetiya", "IN", "Ingush", "Ingushetia Republic"]
-        },
-        "Kabardino-Balkarskaya Respublika": {
-            "aliases": ["Kabardino-Balkaria Republic", "Kabardino Balkaria", "Kabardino Balkar", "Kabardin Balkar",
-                        "KB",
-                        "kab", "Kabardino", "Balkaria", "balkar",
-                        "kabardino-balkarian republic", "kabardino-balkaria", "kabardion",
-                        "kabardino balkarian republic",
-                        "nalchik"]
-        },
-        "Kalmykiya": {
-            "aliases": ["Republic of Kalmykia", "Kalmykia", "Kalmyk", "Kalmykiya", "Khalmg Tangch", "KL", "elista"]
-        },
-        "Karachayevo-Cherkesiya": {
-            "aliases": ["Karachay-Cherkess Republic", "Karachay Cherkessia", "Karachai Cherkess",
-                        "Karachayevo Cherkessiya",
-                        "KC", "karachay", "cherkess",
-                        "cherkessiya", "cherkessia", "karachay-cherkessia", "Cherkessk"]
-        },
-        "Respublika Kareliya": {
-            "aliases": ["Republic of Karelia", "Karelia", "Kareliya", "KR", "rok", "Karjala", "Finland", "Suomi"]
-        },
-        "Respublika Khakasiya": {
-            "aliases": ["Republic of Khakassia", "Khakassia", "Khakassiya", "Khakasia", "KK", "khakassia republic",
-                        "abakan"]
-        },
-        "Komi": {
-            "aliases": ["Komi Republic", "Komi", "KO", "Komi-Permyak", "Komi-Permyak Autonomous Okrug",
-                        "Komi-Permyak Autonomous District"]
-        },
-        "Respublika Mariy-El": {
-            "aliases": ["Mari El Republic", "Mari El", "Mari", "Mariy El", "ME", "YoshkOla", "yoshkar", "mari",
-                        "el mari"]
-        },
-        "Respublika Mordoviya": {
-            "aliases": ["Republic of Mordovia", "Mordovia", "Mordoviya", "MO", "Saransk"]
-        },
-        "Respublika Sakha (Yakutiya)": {
-            "aliases": ["Republic of Sakha", "Sakha", "Yakutia", "Yakutsk", "Yakutiya", "SA"]
-        },
-        "North Ossetia Republic": {
-            "aliases": ["Republic of North Ossetia-Alania", "North Ossetia–Alania Republic",
-                        "Respublika Severnaya Osetia-Alania", "North Ossetia–Alania",
-                        "North Ossetia", "Alania", "Ossetia", "Ironston", "Iron", "Alaniya", "SE", "Vladikavkaz"]
-        },
-        "Tatarstan": {
-            "aliases": ["Republic of Tatarstan", "Tatarstan", "Tatar", "Tataria", "TA", "Kazan"]
-        },
-        "Respublika Tyva": {
-            "aliases": ["Republic of Tuva", "Tuva", "Tyva", "Tannu Tuva", "TY"]
-        },
-        "Udmurtskaya Respublika": {
-            "aliases": ["Udmurt Republic", "Udmurtia", "Udmurt", "UD", "Izhevsk"]
-        },
-
-        # Krais
-        "Altayskiy Kray": {
-            "aliases": ["Altai Krai", "Altay Krai", "ALT", "Barnaul"]
-        },
-        "Kamchatka Krai": {
-            "aliases": ["Kamchatka Krai", "Kamchatka", "Kamchatsky", "KAM", "Petropavlovsk-Kamchatsky", "Petropavlovsk"]
-        },
-        "Khabarovskiy Kray": {
-            "aliases": ["Khabarovsk Krai", "Khabarovsk", "Khabarovsky", "KHA", "Khab"]
-        },
-        "Krasnodarskiy Kray": {
-            "aliases": ["Krasnodar Krai", "Krasnodar", "Kuban", "KDA"]
-        },
-        "Krasnoyarskiy Kray": {
-            "aliases": ["Krasnoyarsk Krai", "Krasnoyarsk", "Krasnoyarsky", "KYA"]
-        },
-        "Perm Krai": {
-            "aliases": ["Perm Krai", "Perm", "Permsky", "PER"]
-        },
-        "Primorskiy Kray": {
-            "aliases": ["Primorsky Krai", "Primorsky", "Primorye", "PRI", "Vladivostok", "Nakhodka", "PRIM",
-                        "Primcess and the Frog"]
-        },
-        "Stavropol Kray": {
-            "aliases": ["Stavropol Krai", "Stavropol", "Stavropolsky", "STA", "Pyatigorsk", "Stav", "Stavropolitan"]
-        },
-        "Transbaikal Territory": {
-            "aliases": ["Zabaykalsky Krai", "Zabaykalsky", "Zabaikalsky", "Transbaikal", "ZAB", "Zabay", "Chita",
-                        "Cheetah"]
-        },
-
-        # Oblasts
-        "Amur Oblast": {
-            "aliases": ["Amur Oblast", "Amur", "Amurskaya", "AMU", "Blagoveshchensk", "Blagoveshchenskaya", "Blago"]
-        },
-        "Arkhangelsk Oblast": {
-            "aliases": ["Arkhangelsk Oblast", "Arkhangelsk", "Arkhangelskaya", "ARK"]
-        },
-        "Astrakhan Oblast": {
-            "aliases": ["Astrakhan Oblast", "Astrakhan", "Astrakhanskaya", "AST"]
-        },
-        "Belgorod Oblast": {
-            "aliases": ["Belgorod Oblast", "Belgorod", "Belgorodskaya", "BEL", "Belgo"]
-        },
-        "Bryansk Oblast": {
-            "aliases": ["Bryansk Oblast", "Bryansk", "Bryanskaya", "BRY"]
-        },
-        "Chelyabinsk Oblast": {
-            "aliases": ["Chelyabinsk Oblast", "Chelyabinsk", "Chelyabinskaya", "CHE", "Chelya"]
-        },
-        "Irkutsk Oblast": {
-            "aliases": ["Irkutsk Oblast", "Irkutsk", "Irkutskaya", "IRK", "Bratsk"]
-        },
-        "Ivanovo Oblast": {
-            "aliases": ["Ivanovo Oblast", "Ivanovo", "Ivanovskaya", "IVA"]
-        },
-        "Kaliningrad Oblast": {
-            "aliases": ["Kaliningrad Oblast", "Kaliningrad", "Kaliningradskaya", "KGD", "Poland", "Lithuania",
-                        "Teutonic Order", "Koenigsberg",
-                        "Karaliaučius", "Królewiec", "Kunnegsgarbs", "Kyonigsberg", "Královec", "Königsberg"]
-        },
-        "Kaluga Oblast": {
-            "aliases": ["Kaluga Oblast", "Kaluga", "Kaluzhskaya", "KLU"]
-        },
-        "Kemerovo Oblast": {
-            "aliases": ["Kemerovo Oblast", "Kemerovo", "Kemerovskaya", "Kuzbass", "KEM"]
-        },
-        "Kirov Oblast": {
-            "aliases": ["Kirov Oblast", "Kirov", "Kirovskaya", "KIR"]
-        },
-        "Kostroma Oblast": {
-            "aliases": ["Kostroma Oblast", "Kostroma", "Kostromskaya", "KOS"]
-        },
-        "Kurgan Oblast": {
-            "aliases": ["Kurgan Oblast", "Kurgan", "Kurganskaya", "KGN"]
-        },
-        "Kursk Oblast": {
-            "aliases": ["Kursk Oblast", "Kursk", "Kurskaya", "KRS", "Ukraine"]
-        },
-        "Leningrad Oblast": {
-            "aliases": ["Leningrad Oblast", "Leningrad", "Leningradskaya", "LEN", "Lenin"]
-        },
-        "Lipetsk Oblast": {
-            "aliases": ["Lipetsk Oblast", "Lipetsk", "Lipetskaya", "LIP"]
-        },
-        "Magadan Oblast": {
-            "aliases": ["Magadan Oblast", "Magadan", "Magadanskaya", "MAG", "maga"]
-        },
-        "Moscow Oblast": {
-            "aliases": ["Moscow Oblast", "Moscow Oblast", "Moskovskaya", "Podmoskovye", "MOS"]
-        },
-        "Murmansk Oblast": {
-            "aliases": ["Murmansk Oblast", "Murmansk", "Murmanskaya", "MUR"]
-        },
-        "Nizhny Novgorod Oblast": {
-            "aliases": ["Nizhny Novgorod Oblast", "Nizhny Novgorod", "Nizhegorodskaya", "Nizhny", "NIZ"]
-        },
-        "Novgorod Oblast": {
-            "aliases": ["Novgorod Oblast", "Novgorod", "Novgorodskaya", "NGR"]
-        },
-        "Novosibirsk Oblast": {
-            "aliases": ["Novosibirsk Oblast", "Novosibirsk", "Novosibirskaya", "NVS", "Novo"]
-        },
-        "Omsk Oblast": {
-            "aliases": ["Omsk Oblast", "Omsk", "Omskaya", "OMS"]
-        },
-        "Orenburg Oblast": {
-            "aliases": ["Orenburg Oblast", "Orenburg", "Orenburgskaya", "ORE", "oren"]
-        },
-        "Orel Oblast": {
-            "aliases": ["Oryol Oblast", "Oryol", "Orlovskaya", "Orel", "ORL", "Oreo"]
-        },
-        "Penza Oblast": {
-            "aliases": ["Penza Oblast", "Penza", "Penzenskaya", "PNZ", "pen", "PEZ"]
-        },
-        "Pskov Oblast": {
-            "aliases": ["Pskov Oblast", "Pskov", "Pskovskaya", "PSK"]
-        },
-        "Rostov Oblast": {
-            "aliases": ["Rostov Oblast", "Rostov", "Rostovskaya", "ROS"]
-        },
-        "Ryazan Oblast": {
-            "aliases": ["Ryazan Oblast", "Ryazan", "Ryazanskaya", "RYA"]
-        },
-        "Sakhalin Oblast": {
-            "aliases": ["Sakhalin Oblast", "Sakhalin", "Sakhalinskaya", "SAK"]
-        },
-        "Samara Oblast": {
-            "aliases": ["Samara Oblast", "Samara", "Samarskaya", "SAM", "Stavropol-on-Volga"]
-        },
-        "Saratovskaya Oblast": {
-            "aliases": ["Saratov Oblast", "Saratov", "Saratovskaya", "SAR"]
-        },
-        "Smolensk Oblast": {
-            "aliases": ["Smolensk Oblast", "Smolensk", "Smolenskaya", "SMO"]
-        },
-        "Sverdlovsk Oblast": {
-            "aliases": ["Sverdlovsk Oblast", "Sverdlovsk", "Sverdlovskaya", "SVE", "Yekaterinburg", "Ekaterinburg",
-                        "Yeka",
-                        "yek", "Yekat"]
-        },
-        "Tambov Oblast": {
-            "aliases": ["Tambov Oblast", "Tambov", "Tambovskaya", "TAM"]
-        },
-        "Tomsk Oblast": {
-            "aliases": ["Tomsk Oblast", "Tomsk", "Tomskaya", "TOM"]
-        },
-        "Tula Oblast": {
-            "aliases": ["Tula Oblast", "Tula", "Tulskaya", "TUL"]
-        },
-        "Tver Oblast": {
-            "aliases": ["Tver Oblast", "Tver", "Tverskaya", "TVE"]
-        },
-        "Tyumenskaya Oblast’": {
-            "aliases": ["Tyumen Oblast", "Tyumen", "Tyumenskaya", "TYU"]
-        },
-        "Ulyanovsk Oblast": {
-            "aliases": ["Ulyanovsk Oblast", "Ulyanovsk", "Ulyanovskaya", "ULY", "Ulya"]
-        },
-        "Vladimirskaya Oblast’": {
-            "aliases": ["Vladimir Oblast", "Vladimir", "Vladimirskaya", "VLA"]
-        },
-        "Volgograd Oblast": {
-            "aliases": ["Volgograd Oblast", "Volgograd", "Volgogradskaya", "VGG", "Stalingrad", "Volgo"]
-        },
-        "Vologda Oblast": {
-            "aliases": ["Vologda Oblast", "Vologda", "Vologodskaya", "VLG"]
-        },
-        "Voronezh Oblast": {
-            "aliases": ["Voronezh Oblast", "Voronezh", "Voronezhskaya", "VOR"]
-        },
-        "Yaroslavl Oblast": {
-            "aliases": ["Yaroslavl Oblast", "Yaroslavl", "Yaroslavskaya", "YAR", "Yaro"]
-        },
-
-        # Autonomous Okrugs
-        "Chukotka Autonomous Okrug": {
-            "aliases": ["Chukotka Autonomous Okrug", "Chukotka", "Chukotsky", "CHU"]
-        },
-        "Khanty-Mansiyskiy Avtonomnyy Okrug-Yugra": {
-            "aliases": ["Khanty-Mansi Autonomous Okrug", "Khanty Mansi", "Jugra", "Yugra", "Khantia Mansia", "KHM",
-                        "Khanty", "Khanty-Mansi", "Khanty-Mansiysk",
-                        "Khanty-Mansiyskiy", "Khanty-Mansiyskiy Avtonomnyy Okrug",
-                        "Khanty-Mansiyskiy Avtonomnyy Okrug-Yugra", "Khanty Mansi Autonomous Okrug", "Mansi",
-                        "Surgut"]
-        },
-        "Nenetskiy Avtonomnyy Okrug": {
-            "aliases": ["Nenets Autonomous Okrug", "Nenets", "Nenetsky", "NEN"]
-        },
-        "Yamalo-Nenetskiy Avtonomnyy Okrug": {
-            "aliases": ["Yamalo-Nenets Autonomous Okrug", "Yamalo Nenets", "Yamal", "YAN", "Yamalo", "Ian Nepomniatchi",
-                        "Yanmega"]
-        },
-
-        # Federal Cities
-        "Moscow Federal City": {
-            "aliases": ["Moscow", "Moskva", "MOW"]
-        },
-        "Saint Petersburg Federal City": {
-            "aliases": ["Saint Petersburg", "Saint Petersburg", "St Petersburg", "SPb", "Petersburg", "SPE"]
-        },
-        "Sevastopol Federal City": {
-            "aliases": ["Sevastopol", "Sevastopol", "SEV"]
-        },
-
-        # Autonomous Oblast
-        "Yevrey (Jewish) Autonomous Oblast": {
-            "aliases": ["Jewish Autonomous Oblast", "Jewish", "Yevrey", "Birobidzhan", "YEV", "JAO", "Israel"]
-        }
-    },
     "cn": {
-        "北京市": {"aliases": ["北京", "京", "BJ", "Beijing"]},
-        "天津市": {"aliases": ["天津", "津", "TJ", "Tianjin"]},
-        "河北省": {"aliases": ["河北", "冀", "Hebei", "HE"]},
-        "山西省": {"aliases": ["山西", "晋", "SX", "Shanxi"]},
-        "内蒙古自治区": {"aliases": ["内蒙古", "蒙", "NM", "Inner Mongolia", "Neimenggu", "nmg"]},
-        "辽宁省": {"aliases": ["辽宁", "辽", "LN", "Liaoning"]},
-        "吉林省": {"aliases": ["吉林", "吉", "JL", "Jilin"]},
-        "黑龙江省": {"aliases": ["黑龙江", "黑", "HL", "Heilongjiang"]},
-        "上海市": {"aliases": ["上海", "沪", "SH", "Shanghai"]},
-        "江苏省": {"aliases": ["江苏", "苏", "JS", "Jiangsu"]},
-        "浙江省": {"aliases": ["浙江", "浙", "ZJ", "Zhejiang"]},
-        "安徽省": {"aliases": ["安徽", "皖", "AH", "Anhui"]},
-        "福建省": {"aliases": ["福建", "闽", "FJ", "Fujian"]},
-        "江西省": {"aliases": ["江西", "赣", "JX", "Jiangxi"]},
-        "山东省": {"aliases": ["山东", "鲁", "SD", "Shandong"]},
-        "河南省": {"aliases": ["河南", "豫", "HA", "Henan"]},
-        "湖北省": {"aliases": ["湖北", "鄂", "HB", "Hubei"]},
-        "湖南省": {"aliases": ["湖南", "湘", "HN", "Hunan"]},
-        "广东省": {"aliases": ["广东", "粤", "GD", "Guangdong"]},
-        "广西壮族自治区": {"aliases": ["广西", "桂", "GX", "Guangxi"]},
-        "海南省": {"aliases": ["海南", "琼", "HI", "Hainan"]},
-        "重庆市": {"aliases": ["重庆", "渝", "CQ", "重慶市", "Chongqing"]},
-        "四川省": {"aliases": ["四川", "川", "蜀", "SC", "Sichuan"]},
-        "贵州省": {"aliases": ["贵州", "黔", "GZ", "Guizhou"]},
-        "云南省": {"aliases": ["云南", "云", "滇", "YN", "Yunnan"]},
-        "西藏自治区": {"aliases": ["西藏", "藏", "Tibet", "Xizang", "XZ"]},
-        "陕西省": {"aliases": ["陕西", "陕", "SN", "秦", "Shaanxi"]},
-        "甘肃省": {"aliases": ["甘肃", "甘", "GS", "陇", "Gansu"]},
-        "青海省": {"aliases": ["青海", "青", "QH", "Qinghai"]},
-        "宁夏回族自治区": {"aliases": ["宁夏", "宁", "NX", "Ningxia"]},
-        "台湾省": {"aliases": ["台湾", "TW", "台", "Taiwan", "Formosa"]},
-        "香港特别行政区": {"aliases": ["香港", "HK", "Hongkong", "Hong Kong", "Xianggang", "港"]},
-        "澳门特别行政区": {"aliases": ["澳门", "MO", "Macau", "Aomen", "澳"]},
-        "新疆维吾尔族自治区": {"aliases": ["新疆", "XJ", "新", "Xinjiang"]},
+        "北京市": {"aliases": ["Beijing", "北京", "京", "BJ"]},
+        "天津市": {"aliases": ["Tianjin", "天津", "津", "TJ"]},
+        "河北省": {"aliases": ["Hebei", "河北", "冀", "HE"]},
+        "山西省": {"aliases": ["Shanxi", "山西", "晋", "SX"]},
+        "内蒙古自治区": {"aliases": ["Inner Mongolia", "内蒙古", "蒙", "NM", "Neimenggu", "nmg"]},
+        "辽宁省": {"aliases": ["Liaoning", "辽宁", "辽", "LN", ]},
+        "吉林省": {"aliases": ["Jilin", "吉林", "吉", "JL"]},
+        "黑龙江省": {"aliases": ["Heilongjiang", "黑龙江", "黑", "HL", "hlj"]},
+        "上海市": {"aliases": ["Shanghai", "上海", "沪", "SH"]},
+        "江苏省": {"aliases": ["Jiangsu", "江苏", "苏", "JS"]},
+        "浙江省": {"aliases": ["Zhejiang", "浙江", "浙", "ZJ"]},
+        "安徽省": {"aliases": ["Anhui", "安徽", "皖", "AH"]},
+        "福建省": {"aliases": ["Fujian", "福建", "闽", "FJ"]},
+        "江西省": {"aliases": ["Jiangxi", "江西", "赣", "JX"]},
+        "山东省": {"aliases": ["Shandong", "山东", "鲁", "SD"]},
+        "河南省": {"aliases": ["Henan", "河南", "豫", "HA"]},
+        "湖北省": {"aliases": ["Hubei", "湖北", "鄂", "HB"]},
+        "湖南省": {"aliases": ["Hunan", "湖南", "湘", "HN"]},
+        "广东省": {"aliases": ["Guangdong", "广东", "粤", "GD"]},
+        "广西壮族自治区": {"aliases": ["Guangxi", "广西", "桂", "GX"]},
+        "海南省": {"aliases": ["Hainan", "海南", "琼", "HI"]},
+        "重庆市": {"aliases": ["Chongqing", "重庆", "渝", "CQ"]},
+        "四川省": {"aliases": ["Sichuan", "四川", "川", "蜀", "SC"]},
+        "贵州省": {"aliases": ["Guizhou", "贵州", "黔", "GZ"]},
+        "云南省": {"aliases": ["Yunnan", "云南", "云", "滇", "YN"]},
+        "西藏自治区": {"aliases": ["Tibet", "西藏", "藏", "Xizang", "XZ"]},
+        "陕西省": {"aliases": ["Shaanxi", "陕西", "陕", "SN", "秦"]},
+        "甘肃省": {"aliases": ["Gansu", "甘肃", "甘", "GS", "陇"]},
+        "青海省": {"aliases": ["Qinghai", "青海", "青", "QH"]},
+        "宁夏回族自治区": {"aliases": ["Ningxia", "宁夏", "宁", "NX"]},
+        "台湾省": {"aliases": ["Taiwan", "台湾", "TW", "台"]},
+        "香港特别行政区": {"aliases": ["Hongkong", "香港", "HK", "Hong Kong", "Xianggang", "港"]},
+        "澳门特别行政区": {"aliases": ["Macau", "澳门", "MO", "Aomen", "澳"]},
+        "新疆维吾尔族自治区": {"aliases": ["Xinjiang", "新疆", "XJ", "新"]},
         '彰化县': {'aliases': ['Changhua County', '彰化', 'zhanghua', 'ch', 'CHA']},
         '嘉义市': {'aliases': ['Chiayi City', 'CYI', "嘉义市"]},
         '嘉义县': {'aliases': ['Chiayi County', "嘉义县", 'cyc', 'cy', 'CYQ']},
         '新竹市': {'aliases': ['Hsinchu City', 'hci', 'HSZ']},
         '新竹县': {'aliases': ['Hsinchu County', 'hcc', 'xinzhu', 'hc', 'HSQ']},
-        '花莲县': {'aliases': ['Hualien County', '花莲', 'hualian', 'hl', 'HUA']},
+        '花莲县': {'aliases': ['Hualien County', '花莲', 'hualian', 'HUA']},
         '高雄市': {'aliases': ['Kaohsiung City', '高雄', 'gaoxiong', 'kao', 'ks', 'KHH']},
         '基隆市': {'aliases': ['Keelung City', '基隆', '基', 'jilong', 'kl', 'KEE']},
         '金门县': {'aliases': ['Kinmen County', '金门', '金', 'jinmen', 'km', 'KIN']},
@@ -348,7 +58,7 @@ REGIONS = {
         '台东县': {'aliases': ['Taitung County', '台东', 'taidong', 'tt', 'TTT']},
         '桃园市': {'aliases': ['Taoyuan City', '桃园', 'taoyuan', 'ty', 'TAO']},
         '宜兰县': {'aliases': ['Yilan County', '宜兰', '宜', 'yilan', 'yil', 'yi', 'ILA']},
-        '云林县': {'aliases': ['Yunlin County', '云林', '云', 'yunlin', 'yu', 'YUN']}
+        '云林县': {'aliases': ['Yunlin County', '云林', 'yunlin', 'yl', 'yu']}
     },
     "vn": {
         "An Giang": {
@@ -541,43 +251,127 @@ REGIONS = {
             "aliases": ["Yen Bai", "YB", "06"]
         }
     },
-    "by": {
-        "Brest": {
-            "aliases": ["Brest", "BR"]
+    "us": {
+        "Alabama": {"aliases": ["Alabama", "AL", "Ala.", "阿拉巴马", "阿拉巴馬"]},
+        "Alaska": {"aliases": ["Alaska", "AK", "阿拉斯加"]},
+        "Arizona": {"aliases": ["Arizona", "AZ", "亞利桑那"]},
+        "Arkansas": {"aliases": ["Arkansas", "AR", "阿肯色"]},
+        "California": {"aliases": ["California", "CA", "Cali", "加利福尼亚", "加州", "加利福尼亞"]},
+        "Colorado": {"aliases": ["Colorado", "CO", "科羅拉多", "科罗拉多"]},
+        "Connecticut": {"aliases": ["Connecticut", "CT", "康涅狄格"]},
+        "Delaware": {"aliases": ["Delaware", "DE", "特拉华", "特拉華"]},
+        "Florida": {"aliases": ["Florida", "FL", "佛罗里达", "佛羅里達", "佛州"]},
+        "Georgia": {"aliases": ["Georgia", "GA", "喬治亞", "乔治亚", "佐治亞", "佐治亚"]},
+        "Hawaii": {"aliases": ["Hawaii", "HI", "夏威夷"]},
+        "Idaho": {"aliases": ["Idaho", "ID", "愛達荷", "爱达荷"]},
+        "Illinois": {"aliases": ["Illinois", "IL", "伊利诺伊", "伊利諾伊"]},
+        "Indiana": {"aliases": ["Indiana", "IN", "印第安纳", "印第安納"]},
+        "Iowa": {"aliases": ["Iowa", "IA", "艾奥瓦", "艾奧瓦", "爱荷华"]},
+        "Kansas": {"aliases": ["Kansas", "KS", "堪萨斯", "堪薩斯"]},
+        "Kentucky": {"aliases": ["Kentucky", "KY", "肯塔基", "肯塔基"]},
+        "Louisiana": {"aliases": ["Louisiana", "LA", "路易斯安那"]},
+        "Maine": {"aliases": ["Maine", "ME", "緬因", "缅因"]},
+        "Maryland": {"aliases": ["Maryland", "MD", "馬里蘭", "马里兰"]},
+        "Massachusetts": {"aliases": ["Massachusetts", "MA", "麻省", "麻薩諸塞", "马萨诸塞"]},
+        "Michigan": {"aliases": ["Michigan", "MI", "密歇根", "密西根"]},
+        "Minnesota": {"aliases": ["Minnesota", "MN", "明尼蘇達", "明尼苏达"]},
+        "Mississippi": {"aliases": ["Mississippi", "MS", "密西西比"]},
+        "Missouri": {"aliases": ["Missouri", "MO", "密蘇里", "密苏里"]},
+        "Montana": {"aliases": ["Montana", "MT", "蒙大拿"]},
+        "Nebraska": {"aliases": ["Nebraska", "NE", "內布拉斯加"]},
+        "Nevada": {"aliases": ["Nevada", "NV", "內華達", "内华达"]},
+        "New Hampshire": {"aliases": ["New Hampshire", "NH", "新罕布什尔"]},
+        "New Jersey": {"aliases": ["New Jersey", "NJ", "新澤西", "新泽西"]},
+        "New Mexico": {"aliases": ["New Mexico", "NM", "新墨西哥"]},
+        "New York": {"aliases": ["New York", "NY", "紐約", "纽约"]},
+        "North Carolina": {"aliases": ["North Carolina", "NC", "北卡罗来纳"]},
+        "North Dakota": {"aliases": ["North Dakota", "ND", "北达科他"]},
+        "Ohio": {"aliases": ["Ohio", "OH", "俄亥俄"]},
+        "Oklahoma": {"aliases": ["Oklahoma", "OK", "俄克拉荷马"]},
+        "Oregon": {"aliases": ["Oregon", "OR", "俄勒冈"]},
+        "Pennsylvania": {"aliases": ["Pennsylvania", "PA", "宾夕法尼亚", "賓夕法尼亞"]},
+        "Rhode Island": {"aliases": ["Rhode Island", "RI", "羅得島", "罗得岛"]},
+        "South Carolina": {"aliases": ["South Carolina", "SC", "南卡罗来纳", "南卡羅來納"]},
+        "South Dakota": {"aliases": ["South Dakota", "SD", "南达科他", "南達科他"]},
+        "Tennessee": {"aliases": ["Tennessee", "TN", "田纳西", "田納西"]},
+        "Texas": {"aliases": ["Texas", "TX", "德克萨斯", "德克薩斯", "德州", "得州", "得克萨斯"]},
+        "Utah": {"aliases": ["Utah", "UT", "猶他", "犹他"]},
+        "Vermont": {"aliases": ["Vermont", "VT", "佛蒙特"]},
+        "Virginia": {"aliases": ["Virginia", "VA", "弗吉尼亚", "弗吉尼亞"]},
+        "Washington": {"aliases": ["Washington", "WA", "华盛顿"]},
+        "West Virginia": {"aliases": ["West Virginia", "WV", "西弗吉尼亚", "西弗吉尼亞"]},
+        "Wisconsin": {"aliases": ["Wisconsin", "WI", "威斯康星", "威斯康辛"]},
+        "Wyoming": {"aliases": ["Wyoming", "WY", "怀俄明"]},
+        "District of Columbia": {"aliases": ["District of Columbia", "DC"]},
+    },
+    "kr": {
+        "Seoul": {
+            "aliases": ["Seoul", "se", "so", "11"]
         },
-        "Gomel": {
-            "aliases": ["Gomel", "GO", "HO"]
+        "Busan": {
+            "aliases": ["Busan", "BS", "bu", "pu", "26"]
         },
-        "Grodno": {
-            "aliases": ["Grodno", "GR", "HR"]
+        "Incheon": {
+            "aliases": ["Incheon", "IC", "in", "28"]
         },
-        "Minsk City": {
-            "aliases": ["Minsk City", "MC", "HM"]
+        "Daegu": {
+            "aliases": ["Daegu", "DG", "da", "27"]
         },
-        "Minsk Region": {
-            "aliases": ["Minsk Region", "MR", "MI"]
+        "Daejeon": {
+            "aliases": ["Daejeon", "DJ", "de", "tj", "30"]
         },
-        "Mogilev": {
-            "aliases": ["Mogilev", "MO", "MA"]
+        "Gwangju": {
+            "aliases": ["Gwangju", "GJ", "gw", "kj", "29"]
         },
-        "Vitebsk": {
-            "aliases": ["Vitebsk", "VI"]
-        }
+        "Ulsan": {
+            "aliases": ["Ulsan", "UL", "31"]
+        },
+        "Gyeonggi": {
+            "aliases": ["Gyeonggi", "GG", "kg", "41"]
+        },
+        "Gangwon": {
+            "aliases": ["Gangwon", "ga", "kw", "42"]
+        },
+        "Chungcheongbuk": {
+            "aliases": ["Chungcheongbuk", "CB", "ccb", "hb", "ch", "43"]
+        },
+        "Chungcheongnam": {
+            "aliases": ["Chungcheongnam", "ccn", "hn", "44"]
+        },
+        "Jeollabuk": {
+            "aliases": ["Jeollabuk", "JB", "cb", "jlb", "45"]
+        },
+        "Jeollanam": {
+            "aliases": ["Jeollanam", "JN", "jln", "cn", "46"]
+        },
+        "Gyeongsangbuk": {
+            "aliases": ["Gyeongsangbuk", "gsb", "gy", "kb", "47"]
+        },
+        "Gyeongsangnam": {
+            "aliases": ["Gyeongsangnam", "gs", "gsn", "kn", "48"]
+        },
+        "Jeju": {
+            "aliases": ["Jeju", "JJ", "je", "cj", "49"]
+        },
+        "Sejong": {
+            "aliases": ["Sejong", "SJ", "50"]
+        },
     },
     "world": {
         "China": {"aliases": ["China", "CN", "中国", "MO", "HK", "TW"]},
         "Russia": {"aliases": ["Russia", "RU", "俄罗斯"]},
-        "United States": {"aliases": ["United States", "US", "VI", "AS", "GU", "MP", "美国"]},
+        "United States": {"aliases": ["United States", "US", "VI", "AS", "GU", "MP", "PR", "美国"]},
         "Brazil": {"aliases": ["Brazil", "BR", "巴西"]},
         "Japan": {"aliases": ["Japan", "JP", "日本"]},
         "Germany": {"aliases": ["Germany", "DE", "德国"]},
-        "United Kingdom": {"aliases": ["United Kingdom", "GB", "UK", "JE", "英国"]},
-        "France": {"aliases": ["France", "FR", "法国"]},
+        "United Kingdom": {"aliases": ["United Kingdom", "GB", "UK", "JE", "IM", "PN", "英国"]},
+        "France": {"aliases": ["France", "FR", "法国", "MQ", "Martinique", "Réunion", "Reunion",
+                               "RE", "留尼汪", "Saint Pierre and Miquelon", "PM"]},
         "Monaco": {"aliases": ["Monaco", "MC", "摩纳哥"]},
         "São Tomé and Príncipe": {"aliases": ["Sao Tome and Principe", "ST", "圣多美和普林西比", ]},
         "Mexico": {"aliases": ["Mexico", "MX", "墨西哥"]},
         "Canada": {"aliases": ["Canada", "CA", "加拿大"]},
-        "Australia": {"aliases": ["Australia", "AU", "澳大利亚"]},
+        "Australia": {"aliases": ["Australia", "AU", "澳大利亚", "CC", "CX"]},
         "Italy": {"aliases": ["Italy", "IT", "意大利"]},
         "Spain": {"aliases": ["Spain", "ES", "西班牙"]},
         "South Korea": {"aliases": ["South Korea", "KR", "韩国"]},
@@ -600,15 +394,16 @@ REGIONS = {
         "Belgium": {"aliases": ["Belgium", "BE", "比利时"]},
         "Norway": {"aliases": ["Norway", "NO", "挪威"]},
         "Denmark": {"aliases": ["Denmark", "DK", "丹麦"]},
-        "Finland": {"aliases": ["Finland", "FI", "芬兰"]},
+        "Finland": {"aliases": ["Finland", "FI", "AX", "芬兰"]},
         "Switzerland": {"aliases": ["Switzerland", "CH", "瑞士"]},
         "Austria": {"aliases": ["Austria", "AT", "奥地利"]},
-        "Netherlands": {"aliases": ["Netherlands", "NL", "荷兰"]},
+        "Netherlands": {"aliases": ["Netherlands", "NL", "CW", "荷兰", "Curacao"]},
         "Czech Republic": {"aliases": ["Czech Republic", "CZ", "捷克"]},
         "Slovakia": {"aliases": ["Slovakia", "SK", "斯洛伐克"]},
         "Romania": {"aliases": ["Romania", "RO", "罗马尼亚"]},
         "Portugal": {"aliases": ["Portugal", "PT", "葡萄牙"]},
         "Greece": {"aliases": ["Greece", "GR", "希腊"]},
+        "Cyprus": {"aliases": ["Cyprus", "CY", "塞浦路斯"]},
         "Israel": {"aliases": ["Israel", "IL", "以色列"]},
         "New Zealand": {"aliases": ["New Zealand", "NZ", "新西兰"]},
         "Qatar": {"aliases": ["Qatar", "QA", "卡塔尔"]},
@@ -633,10 +428,13 @@ REGIONS = {
         "Nepal": {"aliases": ["Nepal", "NP", "尼泊尔"]},
         "Panama": {"aliases": ["Panama", "PA", "巴拿马"]},
         "Guatemala": {"aliases": ["Guatemala", "GT", "危地马拉"]},
-        "Dominican Republic": {"aliases": ["Dominican Republic", "DR", "多尼米加"]},
+        "United Arab Emirates": {"aliases": ["United Arab Emirates", "AE", "阿联酋"]},
+        "Dominican Republic": {"aliases": ["Dominican Republic", "DO", "多尼米加"]},
         "Rwanda": {"aliases": ["Rwanda", "RW", "卢旺达"]},
         "Tanzania": {"aliases": ["Tanzania", "TZ", "坦桑尼亚"]},
-        "Réunion": {"aliases": ["Réunion", "Reunion", "RE", "留尼旺"]},
+        "Mozambique": {"aliases": ["Mozambique", "MZ", "莫桑比克"]},
+        "Zimbabwe": {"aliases": ["Zimbabwe", "ZW", "津巴布韦"]},
+        "Zambia": {"aliases": ["Zambia", "ZM", "赞比亚"]},
         "Madagascar": {"aliases": ["Madagascar", "MG", "马达加斯加"]},
         "Mali": {"aliases": ["Mali", "ML", "马里"]},
         "Latvia": {"aliases": ["Latvia", "LV", "拉脱维亚"]},
@@ -652,7 +450,6 @@ REGIONS = {
         "Gibraltar": {"aliases": ["Gibraltar", "GI", "直布罗陀"]},
         "Mongolia": {"aliases": ["Mongolia", "MN", "蒙古"]},
         "Costa Rica": {"aliases": ["Costa Rica", "CR", "哥斯达黎加"]},
-        "Curaçao": {"aliases": ["Curaçao", "CW", "库拉索"]},
         "Bermuda": {"aliases": ["Bermuda", "BM", "百慕大"]},
         "Greenland": {"aliases": ["Greenland", "GL", "格陵兰岛"]},
         "Bolivia": {"aliases": ["Bolivia", "BO", "玻利维亚"]},
@@ -669,7 +466,6 @@ REGIONS = {
         "Sri Lanka": {"aliases": ["Sri Lanka", "LK", "斯里兰卡"]},
         "Cambodia": {"aliases": ["Cambodia", "KH", "柬埔寨"]},
         "Laos": {"aliases": ["Laos", "LA", "老挝"]},
-        "Puerto Rico": {"aliases": ["Puerto Rico", "PR", "波多黎各"]},
         "Luxembourg": {"aliases": ["Luxembourg", "LU", "卢森堡"]},
         "Isle of Man": {"aliases": ["Isle of Man", "IM", "马恩岛"]},
         "Pakistan": {"aliases": ["Pakistan", "PK", "巴基斯坦"]},

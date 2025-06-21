@@ -6,6 +6,7 @@ from asyncio import Queue, create_task, gather
 import os
 import io
 import asyncio
+import random
 from typing import Optional, List
 from models import GameManager, Pano, Round
 from geoguessr import GeoGuessr
@@ -16,14 +17,16 @@ import json
 from datetime import datetime, UTC
 from PIL import Image
 import time
-from config import DEFAULT_MAP, REGIONS_NAMES, WORLD_MAPS
 from config import *
+from dotenv import load_dotenv
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', handlers=[
     logging.FileHandler('streaks.log'),
     logging.StreamHandler()
 ])
 
+load_dotenv()
+DISCORD_TOKEN=os.getenv("DISCORD_TOKEN")
 
 class PanoProcessor:
     def __init__(self, max_concurrent: int = 3):
@@ -40,9 +43,9 @@ class PanoProcessor:
             numpy_result = await pano.get_panorama(heading, pitch)
             if numpy_result is None:
                 return None
-
             pano.img = Pano.add_compass(numpy_result,
-                                        pano.driving_direction if pano.driving_direction else heading)
+                                        heading if len(pano.pano_id) == 22 or not pano.driving_direction
+                                        else pano.driving_direction)
             return pano.img
         except Exception as e:
             logging.error(f"Error processing pano {pano.pano_id}: {e}")
@@ -214,10 +217,8 @@ class GeoGuessrBot(commands.Bot):
 
         else:
             map_to_pano_id = {
-                '65e97f26625ad27a6af383da': 'yandex',
                 '65d37bc2d172e33f7ba44793': 'yandex',
-                '6145d90496b10b0001ac2bbb': 'air',
-                '66e684a8d86f90f1d3036208': 'yandex'
+                '65ce73b83267cf12aae3b604': 'yandex'
             }
 
             if game_data['map'] in map_to_pano_id and not round.pano.pano_id:
@@ -304,7 +305,7 @@ class GeoGuessrBot(commands.Bot):
         self.game_manager.waiting_for_guess[channel.id] = True
 
     async def start_new_round(self, channel):
-        logging.info(f"{channel}: Starting new round")
+        logging.info(f"{channel.id}: Starting new round")
         self.game_manager.reset_5k_attempts(channel.id)
 
         if channel.id not in self.geoguessr_games:
@@ -556,7 +557,10 @@ class GeoGuessrBot(commands.Bot):
                             self.game_manager.waiting_for_guess[ctx.channel.id] = True
                             return
 
-                    # Is the guess valid?
+                    if 'or' in guess_text:
+                        guesses = guess_text.split(' or ')
+                        if guesses and len(guesses) > 1:
+                            guess_text = random.choice(guesses).strip()
 
                     if not self.game_manager.subdivisions.is_valid_location(guess_text) and \
                             guess_text not in self.game_manager.rounds[ctx.channel.id].pool:
@@ -672,6 +676,53 @@ class GeoGuessrBot(commands.Bot):
             self.game_manager.streak[ctx.channel.id] = streak
             logging.info(f"Streak set to {streak}")
 
+        @self.command(name='edit')
+        @commands.has_permissions(administrator=True)
+        async def edit_map(ctx, map_name: str = None, map_id: str = None):
+            """
+            编辑地图的 map_id 并保存到 maps.json
+            用法: !edit [map_name] [map_id]
+            """
+            if not map_name or not map_id:
+                embed = discord.Embed(
+                    description="Please provide a valid map_name and a map_id!",
+                    color=discord.Color.red()
+                )
+                await ctx.send(embed=embed)
+                return
+
+            json_path = "maps.json"
+            # 读取现有JSON
+            try:
+                if os.path.exists(json_path):
+                    with open(json_path, "r", encoding="utf-8") as f:
+                        maps_data = json.load(f)
+                else:
+                    maps_data = {}
+            except Exception as e:
+                await ctx.send(f"读取 maps.json 失败: {e}")
+                return
+
+            # 支持简写（别名）查找
+            found_name = None
+            for k, v in MAPS.items():
+                if map_name.lower() == v[0].lower() or map_name.lower() in [alias.lower() for alias in v[1:]]:
+                    found_name = v[0]
+                    break
+            if not found_name:
+                await ctx.send("未找到该地图名，请检查输入。")
+                return
+
+            maps_data[found_name] = map_id
+
+            # 保存回JSON
+            try:
+                with open(json_path, "w", encoding="utf-8") as f:
+                    json.dump(maps_data, f, ensure_ascii=False, indent=2)
+                await ctx.send(f"已将地图 **{found_name}** 的 map_id 修改为 `{map_id}` 并保存。")
+            except Exception as e:
+                await ctx.send(f"保存 maps.json 失败: {e}")
+
         @self.command(name='map')
         @commands.cooldown(1, 0.5, BucketType.user)
         async def map_link(ctx):
@@ -721,260 +772,326 @@ class GeoGuessrBot(commands.Bot):
 
         @self.group(name='stats', aliases=['acc', 'accuracy'], invoke_without_command=True)
         @commands.cooldown(1, 1, BucketType.user)
-        async def stats(ctx):
+        async def stats(ctx, *args):
+            # 1. 提取 map 参数
+            map_filter = None
+            map_name = None
+            map_args = [a for a in args if a.startswith("map:")]
+            if map_args:
+                map_input = map_args[0][4:].lower()
+                for map_id, names in MAPS.items():
+                    real_name = names[0]
+                    aliases = [real_name.lower()] + [alias.lower() for alias in names[1:]]
+                    if map_input in aliases:
+                        map_filter = map_id
+                        map_name = real_name
+                        break
+
+            # 2. 连接数据库并查询 stats
             with sqlite3.connect(self.game_manager.db_path) as conn:
-                stats = conn.execute("""
+                params = [ctx.author.id]
+                query = """
                     SELECT total_guesses, correct_guesses, accuracy, 
-                        best_solo_streak, best_assisted_streak, avg_solo_streak
+                           best_solo_streak, best_assisted_streak, avg_solo_streak
                     FROM player_stats
                     WHERE user_id = ?
-                """, (ctx.author.id,)).fetchone()
+                """
+                if map_filter:
+                    query += " AND map = ?"
+                    params.append(map_filter)
 
-                world_record = conn.execute("""
-                    WITH streak_counts AS (
-                        SELECT 
-                            streak_id,
-                            COUNT(*) as participant_count
-                        FROM streak_participants
-                        GROUP BY streak_id
-                        HAVING participant_count = 1
-                    )
-                    SELECT MAX(s.number) as max_streak
-                    FROM streaks s
-                    JOIN streak_counts sc ON s.id = sc.streak_id
-                """).fetchone()[0]
+                stats = conn.execute(query, params).fetchone()
 
+                if map_filter:
+                    world_record_query = """
+                        WITH valid_streaks AS (
+                            SELECT DISTINCT s.id AS streak_id
+                            FROM streaks s
+                            JOIN rounds r ON r.streak_id = s.id
+                            WHERE r.map = ?
+                        ),
+                        solo_streaks AS (
+                            SELECT s.number
+                            FROM streaks s
+                            JOIN streak_participants sp ON sp.streak_id = s.id
+                            WHERE s.id IN (SELECT streak_id FROM valid_streaks)
+                            GROUP BY s.id
+                            HAVING COUNT(sp.user_id) = 1
+                        )
+                        SELECT MAX(number) FROM solo_streaks;
+                    """
+                    world_record = conn.execute(world_record_query, (map_filter,)).fetchone()[0]
+                else:
+                    world_record_query = """
+                        WITH streak_counts AS (
+                            SELECT streak_id, COUNT(*) as participant_count
+                            FROM streak_participants
+                            GROUP BY streak_id
+                            HAVING participant_count = 1
+                        )
+                        SELECT MAX(s.number)
+                        FROM streaks s
+                        JOIN streak_counts sc ON s.id = sc.streak_id;
+                    """
+                    world_record = conn.execute(world_record_query).fetchone()[0]
+
+            # 3. 构造 Embed 输出
             if not stats or stats[0] == 0:
                 await ctx.send("No stats recorded yet!")
                 return
 
-            total, correct, accuracy, best_solo_streak, best_assisted_streak, avg_solo_streak = stats
+            total, correct, accuracy, best_solo, best_assisted, avg_solo = stats
             world_record_chance = (accuracy / 100) ** (world_record + 1) * 100
 
-            embed = discord.Embed(
-                title=f"Stats for {ctx.author.display_name}",
-                color=discord.Color.blue()
-            )
+            title = f"Stats for {ctx.author.display_name}"
+            if map_name:
+                title += f" on **{map_name}**"
 
+            embed = discord.Embed(title=title, color=discord.Color.blue())
             description = [
                 f"**Guesses**: {correct}/{total}",
-                f"**Accuracy**: {accuracy}%\n"
+                f"**Accuracy**: {accuracy:.1f}%",
             ]
-
-            # Only add streak stats if they exist
-            if best_solo_streak > 0:
-                description.append(f"**Best Solo Streak**: {best_solo_streak}")
-            if best_assisted_streak > 0:
-                description.append(f"**Best Assisted Streak**: {best_assisted_streak}")
-            if avg_solo_streak > 0:
-                description.append(f"**Average Solo Streak**: {avg_solo_streak:.2f}")
-            description.append(f"Chance of world record: {world_record_chance:.4f}%")
+            if best_solo > 0:
+                description.append(f"**Best Solo Streak**: {best_solo}")
+            if best_assisted > 0:
+                description.append(f"**Best Assisted Streak**: {best_assisted}")
+            if avg_solo > 0:
+                description.append(f"**Average Solo Streak**: {avg_solo:.2f}")
+            description.append(f"Chance of world record: {world_record_chance:.4f}% (**{world_record}**)")
 
             embed.description = "\n".join(description)
             await ctx.send(embed=embed)
 
         @stats.command(name='subdivisions', aliases=['subs', 'subdivision', 's'])
-        async def personal_stats(ctx):
+        async def personal_stats(ctx, *args):
+            # 解析 map: 参数
+            map_filter = None
+            map_name = None
+            map_args = [a for a in args if a.startswith("map:")]
+            if map_args:
+                map_input = map_args[0][4:].lower()
+                for map_id, names in MAPS.items():
+                    real_name = names[0]
+                    aliases = [real_name.lower()] + [alias.lower() for alias in names[1:]]
+                    if map_input in aliases:
+                        map_filter = map_id
+                        map_name = real_name
+                        break
+
             with sqlite3.connect(self.game_manager.db_path) as conn:
-                # Get 5 hardest subdivisions (existing query)
-                hardest = conn.execute("""
+                params = [ctx.author.id]
+                where_clause = "user_id = ?"
+                if map_filter:
+                    where_clause += " AND map = ?"
+                    params.append(map_filter)
+
+                # 1. Hardest
+                hardest = conn.execute(f"""
                     SELECT actual_location, times_seen, times_correct, accuracy_rate
                     FROM player_subdivision_stats
-                    WHERE user_id = ? AND hardest_rank <= 10
+                    WHERE {where_clause} AND hardest_rank <= 10
                     ORDER BY hardest_rank
-                """, (ctx.author.id,)).fetchall()
+                """, params).fetchall()
 
-                # Get 5 easiest subdivisions (existing query)
-                easiest = conn.execute("""
+                # 2. Easiest
+                easiest = conn.execute(f"""
                     SELECT actual_location, times_seen, times_correct, accuracy_rate
                     FROM player_subdivision_stats
-                    WHERE user_id = ? AND easiest_rank <= 10
+                    WHERE {where_clause} AND easiest_rank <= 10
                     ORDER BY easiest_rank
-                """, (ctx.author.id,)).fetchall()
+                """, params).fetchall()
 
-                # Add personal common mistakes
-                mistakes = conn.execute("""
+                # 3. Common Mistakes — 依然从 rounds 表查
+                mistake_params = [ctx.author.id]
+                mistake_where = "user_id = ? AND NOT is_correct AND guessed_location != '5k guess'"
+                if map_filter:
+                    mistake_where += " AND map = ?"
+                    mistake_params.append(map_filter)
+
+                mistakes = conn.execute(f"""
                     SELECT actual_location, guessed_location,
-                        COUNT(*) as mistake_count
+                           COUNT(*) as mistake_count
                     FROM rounds
-                    WHERE NOT is_correct 
-                        AND user_id = ?
-                        AND guessed_location != '5k guess'
+                    WHERE {mistake_where}
                     GROUP BY actual_location, guessed_location
                     HAVING mistake_count >= 2
                     ORDER BY mistake_count DESC
                     LIMIT 5
-                """, (ctx.author.id,)).fetchall()
+                """, mistake_params).fetchall()
 
             if not hardest and not easiest:
                 await ctx.send("Not enough data yet! You need at least 3 guesses for a subdivision to be ranked.")
                 return
 
-            embed = discord.Embed(
-                title=f"Subdivisions for {ctx.author.global_name}",
-                color=discord.Color.blue()
-            )
+            title = f"Subdivisions for {ctx.author.global_name}"
+            if map_name:
+                title += f" on **{map_name}**"
+
+            embeds = []
+            embed = discord.Embed(title=title, color=discord.Color.blue())
+            length_so_far = len(title)
 
             if hardest:
-                hard_text = []
-                for loc, seen, correct, acc in hardest:
-                    hard_text.append(f"**{loc}** - {correct}/{seen} ({acc}%)")
-                embed.add_field(
-                    name="💀 Hardest",
-                    value="\n".join(hard_text),
-                    inline=False
-                )
+                hard_text = [f"**{loc}** - {correct}/{seen} ({acc}%)" for loc, seen, correct, acc in hardest]
+                length_so_far = safe_add_field(embed, "💀 Hardest", hard_text, length_so_far)
+                embed, length_so_far = maybe_new_embed(embeds, embed, length_so_far)
 
             if easiest:
-                easy_text = []
-                for loc, seen, correct, acc in easiest:
-                    easy_text.append(f"**{loc}** - {correct}/{seen} ({acc}%)")
-                embed.add_field(
-                    name="🎯 Easiest",
-                    value="\n".join(easy_text),
-                    inline=False
-                )
+                easy_text = [f"**{loc}** - {correct}/{seen} ({acc}%)" for loc, seen, correct, acc in easiest]
+                length_so_far = safe_add_field(embed, "🎯 Easiest", easy_text, length_so_far)
+                embed, length_so_far = maybe_new_embed(embeds, embed, length_so_far)
 
             if mistakes:
-                mistake_text = []
-                for actual, guessed, count in mistakes:
-                    mistake_text.append(f"**{actual}** mistaken for **{guessed}** ({count} times)")
-                embed.add_field(
-                    name="❌ Common Mistakes",
-                    value="\n".join(mistake_text),
-                    inline=False
-                )
+                mistake_text = [f"**{actual}** mistaken for **{guess}** ({count} times)" for actual, guess, count in
+                                mistakes]
+                length_so_far = safe_add_field(embed, "❌ Common Mistakes", mistake_text, length_so_far)
+                embed, length_so_far = maybe_new_embed(embeds, embed, length_so_far)
 
-            await ctx.send(embed=embed)
+            embeds.append(embed)
+
+            for em in embeds:
+                await ctx.send(embed=em)
 
         @stats.group(name='global', aliases=['g'], invoke_without_command=True)
-        async def global_stats(ctx):
+        async def global_stats(ctx, *args):
+            # 解析 map 参数
+            map_filter, map_name = None, None
+            map_args = [a for a in args if a.startswith("map:")]
+            if map_args:
+                map_input = map_args[0][4:].lower()
+                for map_id, names in MAPS.items():
+                    real_name = names[0]
+                    aliases = [real_name.lower()] + [alias.lower() for alias in names[1:]]
+                    if map_input in aliases:
+                        map_filter = map_id
+                        map_name = real_name
+                        break
+
             with sqlite3.connect(self.game_manager.db_path) as conn:
-                stats = conn.execute("""
+                # 构造 SQL
+                map_condition = "WHERE map = ?" if map_filter else ""
+                params = (map_filter,) if map_filter else ()
+
+                stats = conn.execute(f"""
                     WITH streak_counts AS (
-                        -- Count participants for each streak
-                        SELECT 
-                            streak_id,
-                            COUNT(*) as participant_count
+                        SELECT streak_id, COUNT(*) as participant_count
                         FROM streak_participants
                         GROUP BY streak_id
                     ),
                     streak_stats AS (
-                        -- Get highest solo and assisted streaks overall
                         SELECT 
                             AVG(CASE WHEN sc.participant_count = 1 THEN s.number ELSE 0 END) as avg_solo_streak
-                        FROM streak_participants sp
-                        JOIN streaks s ON sp.streak_id = s.id
+                        FROM streaks s
                         JOIN streak_counts sc ON s.id = sc.streak_id
+                        JOIN rounds r ON r.streak_id = s.id
+                        {map_condition}
                     )
                     SELECT 
                         COUNT(*) as total_guesses,
-                        SUM(CASE WHEN is_correct THEN 1 ELSE 0 END) as correct_guesses,
-                        ROUND(AVG(CASE WHEN is_correct THEN 100.0 ELSE 0 END), 1) as accuracy,
-                        ROUND((SELECT avg_solo_streak FROM streak_stats), 2) as avg_solo_streak
-                    FROM rounds;
-                """).fetchone()
+                        SUM(CASE WHEN is_correct THEN 1 ELSE 0 END),
+                        ROUND(AVG(CASE WHEN is_correct THEN 100.0 ELSE 0 END), 1),
+                        ROUND((SELECT avg_solo_streak FROM streak_stats), 2)
+                    FROM rounds
+                    {map_condition}
+                """, params * 2).fetchone()
 
-                if not stats or stats[0] == 0:
-                    await ctx.send("No stats recorded yet!")
-                    return
+            if not stats or stats[0] == 0:
+                await ctx.send("No stats recorded yet!")
+                return
 
-                total, correct, accuracy, avg_solo_streak = stats
+            total, correct, accuracy, avg_solo_streak = stats
+            title = "Global Stats"
+            if map_name:
+                title += f" on **{map_name}**"
 
-                embed = discord.Embed(
-                    title=f"Global Stats",
-                    color=discord.Color.blue()
-                )
-
-                description = [
-                    f"**Guesses**: {correct}/{total}",
-                    f"**Accuracy**: {accuracy}%"
-                ]
-
-                if avg_solo_streak > 0:
-                    description.append(f"**Average Solo Streak**: {avg_solo_streak:.2f}")
-
-                embed.description = "\n".join(description)
-                await ctx.send(embed=embed)
+            embed = discord.Embed(title=title, color=discord.Color.blue())
+            embed.description = "\n".join([
+                f"**Guesses**: {correct}/{total}",
+                f"**Accuracy**: {accuracy}%",
+                f"**Average Solo Streak**: {avg_solo_streak:.2f}" if avg_solo_streak > 0 else ""
+            ])
+            await ctx.send(embed=embed)
 
         @global_stats.command(name='subdivisions', aliases=['subs', 'subdivision', 's'])
-        async def global_subdivision_stats(ctx):
-            """Show global subdivision statistics"""
+        async def global_subdivision_stats(ctx, *args):
+            map_filter, map_name = None, None
+            map_args = [a for a in args if a.startswith("map:")]
+            if map_args:
+                map_input = map_args[0][4:].lower()
+                for map_id, names in MAPS.items():
+                    real_name = names[0]
+                    aliases = [real_name.lower()] + [alias.lower() for alias in names[1:]]
+                    if map_input in aliases:
+                        map_filter = map_id
+                        map_name = real_name
+                        break
+
             with sqlite3.connect(self.game_manager.db_path) as conn:
-                # Get overall subdivision stats
-                hardest = conn.execute("""
-                    SELECT actual_location,
-                        COUNT(*) as times_seen,
-                        SUM(CASE WHEN is_correct THEN 1 ELSE 0 END) as correct_guesses,
-                        ROUND(AVG(CASE WHEN is_correct THEN 100.0 ELSE 0 END), 1) as accuracy_rate
-                    FROM rounds
-                    GROUP BY actual_location
-                    HAVING times_seen >= 10
-                    ORDER BY accuracy_rate ASC
-                    LIMIT 10
-                """).fetchall()
+                params = (map_filter,) if map_filter else ()
+                condition = "WHERE map = ?" if map_filter else ""
 
-                easiest = conn.execute("""
-                    SELECT actual_location,
-                        COUNT(*) as times_seen,
-                        SUM(CASE WHEN is_correct THEN 1 ELSE 0 END) as correct_guesses,
-                        ROUND(AVG(CASE WHEN is_correct THEN 100.0 ELSE 0 END), 1) as accuracy_rate
+                hardest = conn.execute(f"""
+                    SELECT actual_location, COUNT(*), SUM(CASE WHEN is_correct THEN 1 ELSE 0 END), 
+                        ROUND(AVG(CASE WHEN is_correct THEN 100.0 ELSE 0 END), 1)
                     FROM rounds
+                    {condition}
                     GROUP BY actual_location
-                    HAVING times_seen >= 10
-                    ORDER BY accuracy_rate DESC
+                    HAVING COUNT(*) >= 10
+                    ORDER BY 4 ASC
                     LIMIT 10
-                """).fetchall()
+                """, params).fetchall()
 
-                # Get common mistaken pairs
-                mistakes = conn.execute("""
-                    SELECT actual_location, guessed_location,
-                        COUNT(*) as mistake_count
+                easiest = conn.execute(f"""
+                    SELECT actual_location, COUNT(*), SUM(CASE WHEN is_correct THEN 1 ELSE 0 END), 
+                        ROUND(AVG(CASE WHEN is_correct THEN 100.0 ELSE 0 END), 1)
                     FROM rounds
-                    WHERE NOT is_correct
-                        AND guessed_location != '5k guess'
+                    {condition}
+                    GROUP BY actual_location
+                    HAVING COUNT(*) >= 10
+                    ORDER BY 4 DESC
+                    LIMIT 10
+                """, params).fetchall()
+
+                mistakes = conn.execute(f"""
+                    SELECT actual_location, guessed_location, COUNT(*) 
+                    FROM rounds
+                    WHERE NOT is_correct AND guessed_location != '5k guess'
+                    {f"AND map = ?" if map_filter else ""}
                     GROUP BY actual_location, guessed_location
-                    HAVING mistake_count >= 3
-                    ORDER BY mistake_count DESC
+                    HAVING COUNT(*) >= 3
+                    ORDER BY COUNT(*) DESC
                     LIMIT 10
-                """).fetchall()
+                """, params).fetchall()
 
-            embed = discord.Embed(
-                title="Global Subdivision Statistics",
-                color=discord.Color.blue()
-            )
+            title = "Global Subdivision Statistics"
+            if map_name:
+                title += f" on **{map_name}**"
+
+            embeds = []
+            embed = discord.Embed(title=title, color=discord.Color.blue())
+            length_so_far = len(title)
 
             if hardest:
-                hard_text = []
-                for loc, seen, correct, acc in hardest:
-                    hard_text.append(f"**{loc}** - {correct}/{seen} ({acc}%)")
-                embed.add_field(
-                    name="💀 Hardest Subdivisions",
-                    value="\n".join(hard_text),
-                    inline=False
-                )
+                hard_text = [f"**{loc}** - {correct}/{seen} ({acc}%)" for loc, seen, correct, acc in hardest]
+                length_so_far = safe_add_field(embed, "💀 Hardest", hard_text, length_so_far)
+                embed, length_so_far = maybe_new_embed(embeds, embed, length_so_far)
 
             if easiest:
-                easy_text = []
-                for loc, seen, correct, acc in easiest:
-                    easy_text.append(f"**{loc}** - {correct}/{seen} ({acc}%)")
-                embed.add_field(
-                    name="🎯 Easiest Subdivisions",
-                    value="\n".join(easy_text),
-                    inline=False
-                )
+                easy_text = [f"**{loc}** - {correct}/{seen} ({acc}%)" for loc, seen, correct, acc in easiest]
+                length_so_far = safe_add_field(embed, "🎯 Easiest", easy_text, length_so_far)
+                embed, length_so_far = maybe_new_embed(embeds, embed, length_so_far)
 
             if mistakes:
-                mistake_text = []
-                for actual, guessed, count in mistakes:
-                    mistake_text.append(f"**{actual}** mistaken for **{guessed}** ({count} times)")
-                embed.add_field(
-                    name="❌ Common Mistakes",
-                    value="\n".join(mistake_text),
-                    inline=False
-                )
+                mistake_text = [f"**{actual}** mistaken for **{guess}** ({count} times)" for actual, guess, count in
+                                mistakes]
+                length_so_far = safe_add_field(embed, "❌ Common Mistakes", mistake_text, length_so_far)
+                embed, length_so_far = maybe_new_embed(embeds, embed, length_so_far)
 
-            await ctx.send(embed=embed)
+            embeds.append(embed)
+
+            for em in embeds:
+                await ctx.send(embed=em)
 
         @self.command(name='aliases', aliases=['a'])
         @commands.cooldown(1, 0.5, BucketType.user)
@@ -1278,9 +1395,11 @@ class GeoGuessrBot(commands.Bot):
 
             embed = discord.Embed(color=discord.Color.orange())
 
-            if len(round_obj.pano.pano_id) == 27:
-                car_image_url = f"https://mapsv0.bdimg.com/?qt=pr3d&fovy=125&quality=100&panoid={round_obj.pano.pano_id}&heading={round_obj.pano.origin_heading}&pitch=-90&width=300&height=720"
-            elif len(round_obj.pano.pano_id) in [23]:
+            if (round_obj.pano.pano_id)[0:6] == "BAIDU:":
+                car_image_url = (
+                    f"https://mapsv0.bdimg.com/?qt=pr3d&fovy=125&quality=100&panoid={(round_obj.pano.pano_id)[6:]}"
+                    f"&heading={round_obj.pano.origin_heading}&pitch=-90&width=300&height=720")
+            elif (round_obj.pano.pano_id)[0:8] == "TENCENT:":
                 back_view = await round_obj.pano.get_panorama(
                     heading=round_obj.pano.driving_direction,
                     pitch=-90,
@@ -1358,9 +1477,10 @@ class GeoGuessrBot(commands.Bot):
                 command.error(cooldown_error)
 
         @self.command(name='switchmap', aliases=['s2'])
+        @commands.cooldown(1, 3, BucketType.user)
         async def switch_map(ctx, *, map_name: Optional[str] = None):
             """Switch to a different map or show available maps"""
-            if not map_name:
+            if not map_name and map_name != 'random':
                 # Show list of available maps using the real names (first name in the list)
                 globe_maps = {
                     map_id: info
@@ -1385,7 +1505,7 @@ class GeoGuessrBot(commands.Bot):
                 embed_non_globe = discord.Embed(
                     title="Country Maps List :map:",
                     description="\n".join([
-                        f":{'flag_cn' if map_id in ['qq', 'baidu'] else 'flag_' + info[2] if len(info) > 2 else 'globe_with_meridians'}: {info[0]} [({info[1].upper()})]({'https://www.geoguessr.com/maps/' + map_id if map_id not in ['baidu', 'qq'] else 'https://tuxun.fun/maps'})"
+                        f":{'flag_' + info[2] if len(info) > 2 else 'globe_with_meridians'}: {info[0]} [({info[1].upper()})]({'https://www.geoguessr.com/maps/' + map_id if map_id not in ['baidu', 'qq'] else 'https://tuxun.fun/maps'})"
                         for map_id, info in non_globe_maps.items()
                     ]),
                     color=discord.Color.blue()
@@ -1405,12 +1525,16 @@ class GeoGuessrBot(commands.Bot):
             # Find the map_id and real name by checking against all aliases
             target_map_id = None
             target_map_name = None
-            for map_id, names in MAPS.items():
-                real_name = names[0]  # First name is the real name
-                if map_input == real_name.lower() or map_input in [alias.lower() for alias in names[1:]]:
-                    target_map_id = map_id
-                    target_map_name = real_name
-                    break
+            if map_input == 'random':
+                target_map_id = random.choice(list(MAPS.keys()))
+                target_map_name = MAPS[target_map_id][0]
+            else:
+                for map_id, names in MAPS.items():
+                    real_name = names[0]  # First name is the real name
+                    if map_input == real_name.lower() or map_input in [alias.lower() for alias in names[1:]]:
+                        target_map_id = map_id
+                        target_map_name = real_name
+                        break
 
             if not target_map_id:
                 embed = discord.Embed(
@@ -1426,9 +1550,11 @@ class GeoGuessrBot(commands.Bot):
 
                 await ctx.send(embed=embed)
                 if target_map_id in WORLD_MAPS:
+                    FIVE_K_DISTANCE = 185
                     self.streak_mode = 'country'
                     self.game_manager.reset_subdivisions(RegionFlatmap(REGIONS["world"]))
                 else:
+                    FIVE_K_DISTANCE = 50
                     self.streak_mode = 'state'
                     for map_id, names in MAPS.items():
                         if target_map_id == map_id:
@@ -1444,10 +1570,34 @@ class GeoGuessrBot(commands.Bot):
             else:
                 await ctx.send("No active game in this channel. Use !start to begin one.")
 
+        def safe_add_field(embed, name, content, length_so_far):
+            field_texts = []
+            field_text = "\n".join(content)
+
+            if len(field_text) <= 1024:
+                field_texts.append((name, field_text))
+            else:
+                # 拆分大字段为多个小段
+                for i in range(0, len(content), 5):
+                    chunk = "\n".join(content[i:i + 5])
+                    field_texts.append((f"{name}" if i == 0 else f"{name} (cont'd)", chunk))
+
+            for field_name, field_val in field_texts:
+                embed.add_field(name=field_name, value=field_val, inline=False)
+                length_so_far += len(field_val)
+
+            return length_so_far
+
+        def maybe_new_embed(embeds, embed, length_so_far, max_len=6000):
+            if length_so_far >= max_len:
+                embeds.append(embed)
+                return discord.Embed(color=discord.Color.blue()), 0
+            return embed, length_so_far
+
 
 def main():
     bot = GeoGuessrBot()
-    bot.run(os.environ['DISCORD_TOKEN'])
+    bot.run(DISCORD_TOKEN)
 
 
 if __name__ == "__main__":

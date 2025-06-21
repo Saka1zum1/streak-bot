@@ -2,34 +2,58 @@ import aiohttp
 import asyncio
 import certifi
 import io
+import os
 import json
 import logging
+import requests
 import math
-import os
 import sqlite3
-import ssl
 from math import radians, sin, cos, sqrt, atan2
 from typing import Self
-
 import numpy as np
 from PIL import Image, ImageFile
 from config import MAPS
 from coordTransform import bd09mc_to_wgs84
 from e2p import Equirectangular
-from pypinyin import lazy_pinyin
+from py360convert import c2e
+from apple import get_apple_coverage_tile, get_apple_equ
+from auth import Authenticator
+from dotenv import load_dotenv
+# from pypinyin import lazy_pinyin
+
+
+load_dotenv()
+BIGDATACLOUD_API_KEY = os.getenv("BIGDATACLOUD_API_KEY")
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
-ssl_context = ssl.create_default_context(cafile=certifi.where())
+
+auth = Authenticator()
 
 GSV_PANO_URL = "https://geo0.ggpht.com/cbk"
 BAIDU_PANO_URL = "https://mapsv0.bdimg.com/?qt=pdata"
 TENCENT_PANO_URL = "https://sv0.map.qq.com/tile"
 YANDEX_PANO_URL = "https://pano.maps.yandex.net"
+KAKAO_PANO_URL = "https://map0.daumcdn.net/map_roadview"
+BING_PREFIX = "BING:"
+APPLE_PREFIX = "APPLE:"
+BAIDU_PREFIX = "BAIDU:"
+KAKAO_PREFIX = "KAKAO:"
+TENCENT_PREFIX = "TENCENT:"
 YANDEX_PREFIX = "YANDEX:"
+OPENMAP_PREFIX = "OPENMAP:"
+GOOGLE_TO_KAKAO_ZOOM = [0, 0, 1, 1, 2]
+KAKAO_HORZ_TILES = [1, 8, 16]
 
 
-def strip_yandex(pano):
-    return pano.replace(YANDEX_PREFIX, "")
+def strip_panoid(pano, prefix):
+    return pano.replace(prefix, "")
+
+
+def get_host_city(pano):
+    if pano:
+        parts = str(pano).split(':')
+        if len(parts) > 1:
+            return parts[0]
 
 
 class Pano:
@@ -43,6 +67,7 @@ class Pano:
         self.driving_direction = None
         self.origin_heading = None
         self.image_key = None
+        self.apple_pano = None
 
         if not pano_id:
             self.pano_id = None
@@ -64,36 +89,111 @@ class Pano:
             self.pano_id = await self.get_panoid()
 
         if self.panorama is None:
-            if len(self.pano_id) == 36:
+            if "BING:" == str(self.pano_id)[0:5]:
+                self.dimensions = [4096, 8192]
+                await self.get_pano_metadata_bing()
+            elif "APPLE:" == str(self.pano_id)[0:6]:
+                self.apple_pano = await self.get_pano_metadata_apple()
+                self.dimensions = [2280, 4560]
+            elif "OPENMAP:" == str(self.pano_id)[0:8]:
                 self.driving_direction = heading
                 self.dimensions = [2880, 5760]
-            elif len(self.pano_id) == 27:
-                await self.get_pano_metadata_bd()
-            elif len(self.pano_id) == 23:
+            elif "BAIDU:" == str(self.pano_id)[0:6]:
+                # await self.get_pano_metadata_bd()
                 self.dimensions = [4096, 8192]
-                await self.get_pano_metadata_qq()
-            elif self.pano_id in ['air', 'yandex'] or len(self.pano_id) == 34:
-                await self.get_pano_metadata_yd(self.lat, self.lng, self.pano_id)
+                self.driving_direction = heading
+            elif "TENCENT:" == str(self.pano_id)[0:8]:
+                self.dimensions = [4096, 8192]
+                self.driving_direction = heading
+            elif "YANDEX:" == str(self.pano_id)[0:7] or self.pano_id == 'yandex':
+                self.pano_id = strip_panoid(self.pano_id, YANDEX_PREFIX)
+                await self.get_pano_metadata_yd(self.lat, self.lng)
+            elif 'KAKAO:' == str(self.pano_id)[0:6]:
+                self.dimensions = [4096, 8192]
+                await self.get_pano_metadata_kk()
             else:
                 await self.get_pano_metadata()
 
-            self.panorama = await self._fetch_and_build_panorama()
+            if "BING:" == str(self.pano_id)[0:5]:
+                self.panorama = await self.build_bing_streetside_panorama()
+            elif "APPLE:" == str(self.pano_id)[0:6]:
+                with requests.Session() as session:
+                    try:
+                        self.panorama = await asyncio.to_thread(
+                            get_apple_equ, self.apple_pano, 3, auth, session
+                        )
+                    except Exception as error:
+                        logging.error(f"Error getting apple equirectangular pano: {error}")
+                    finally:
+                        session.close()
+            else:
+                self.panorama = await self._fetch_and_build_panorama()
 
         equ = Equirectangular(self.panorama)
-        if self.pano_id and len(self.pano_id) == 23:
+
+        if "BING:" == str(self.pano_id)[0:5] or "TENCENT:" == str(self.pano_id)[0:8]:
             h = 0
-        elif self.pano_id and len(self.pano_id) == 34:
-            h = 180
+        elif "YANDEX:" == str(self.pano_id)[0:7] or self.pano_id == 'yandex':
+            h = 0
             pitch = 5 if self.zoom == 1 else 0
             FOV = 110
-        elif self.pano_id and len(self.pano_id) == 27:
+        elif "BAIDU:" == str(self.pano_id)[0:6]:
             h = 90
+        elif str(self.pano_id)[0:6] in ["KAKAO:", 'APPLE:']:
+            h = 180
         else:
             h = heading - self.driving_direction
 
         result = equ.GetPerspective(FOV, h, pitch, 1080, 1920)
 
         return result
+
+    async def fetch_cube_tile(self, session, template, direction):
+        tile_url = template.format(direction=direction,
+                                   panoid=strip_panoid(self.pano_id, f"{get_host_city(self.pano_id)}:"))
+
+        try:
+            async with session.get(tile_url) as response:
+                if response.status == 200:
+                    image_data = await response.read()
+                    tile_img = Image.open(io.BytesIO(image_data))
+                    return tile_img
+                else:
+                    print(f"Error: Failed to download tile {tile_url}")
+                    return None
+        except Exception as e:
+            print(f"Error: {e} while downloading tile {tile_url}")
+            return None
+
+    def create_cubemap(self, tiles):
+        f, r, b, l, u, d = tiles
+
+        tile_width, tile_height = f.size
+
+        cubemap_width = 4 * tile_width
+        cubemap_height = 3 * tile_height
+        cubemap_img = Image.new('RGB', (cubemap_width, cubemap_height))
+
+        cubemap_img.paste(u, (tile_width, 0))  # 上面 (第一行，中央)
+        cubemap_img.paste(l, (0, tile_height))  # 左面 (第二行，左侧)
+        cubemap_img.paste(f, (tile_width, tile_height))  # 前面 (第二行，中央)
+        cubemap_img.paste(r, (2 * tile_width, tile_height))  # 右面 (第二行，右侧)
+        cubemap_img.paste(b, (3 * tile_width, tile_height))  # 背面 (第二行，最右)
+        cubemap_img.paste(d, (tile_width, 2 * tile_height))  # 下面 (第三行，中央)
+
+        return np.array(cubemap_img)
+
+    async def fetch_cube_tiles(self, template):
+        directions = ['f', 'r', 'b', 'l', 'u', 'd']
+        async with aiohttp.ClientSession() as session:
+            tasks = []
+            for direction in directions:
+                task = self.fetch_cube_tile(session, template, direction)
+                tasks.append(task)
+
+            # 执行所有任务
+            tiles = await asyncio.gather(*tasks)
+            return tiles
 
     async def fetch_single_tile(self, session, x, y, retries=3):
         async def check_host_url(url):
@@ -104,33 +204,59 @@ class Pano:
                 logging.error(f"Host check failed for {url}: {e}")
                 return False
 
-        if str(self.pano_id).count("-") >= 3:
+        if "OPENMAP:" == str(self.pano_id)[0:8]:
             host_1 = "https://storage.nambox.com/streetview-cdn/derivates/"
             host_2 = "https://hn.storage.weodata.vn/streetview-cdn/derivates/"
-            param_url = f"{self.pano_id[0:2]}/{self.pano_id[2:4]}/{self.pano_id[4:6]}/{self.pano_id[6:8]}/{self.pano_id[9:]}/tiles/{x}_{y}.jpg"
+            param_url = (
+                f"{strip_panoid(self.pano_id, OPENMAP_PREFIX)[0:2]}/{strip_panoid(self.pano_id, OPENMAP_PREFIX)[2:4]}/"
+                f"{strip_panoid(self.pano_id, OPENMAP_PREFIX)[4:6]}/{strip_panoid(self.pano_id, OPENMAP_PREFIX)[6:8]}/"
+                f"{strip_panoid(self.pano_id, OPENMAP_PREFIX)[9:]}/tiles/{x}_{y}.jpg")
             TILE_URL = f"{host_1}{param_url}" if await check_host_url(
                 f"{host_1}{param_url}") else f"{host_2}{param_url}"
             params = None
-        elif len(self.pano_id) == 27:
+        elif 'KAKAO:' == str(self.pano_id)[0:6]:
+
+            def get_tile_index(zoom, tile_x, tile_y):
+                w = KAKAO_HORZ_TILES[zoom]
+                return (tile_y + 1) * w + (tile_x - w) + 1
+
+            def get_tile_image_name(image_path):
+                return image_path.split("/")[-1]
+
+            def build_tile_url(image_path, zoom, tile_x, tile_y):
+                zoom = GOOGLE_TO_KAKAO_ZOOM[zoom - 1]
+                tile_index = str(get_tile_index(zoom, tile_x, tile_y)).zfill(zoom + 1)
+
+                if zoom == 1:
+                    return f"{KAKAO_PANO_URL}{image_path}/{get_tile_image_name(image_path)}_{tile_index}.jpg"
+                elif zoom == 2:
+                    return f"{KAKAO_PANO_URL}{image_path}_HD1/{get_tile_image_name(image_path)}_HD1_{tile_index}.jpg"
+
+            TILE_URL = build_tile_url(self.image_key, 5, x, y)
+
+            params = None
+
+        elif "BAIDU:" == str(self.pano_id)[0:6]:
             TILE_URL = BAIDU_PANO_URL
             params = {
                 "qt": "pdata",
-                "sid": self.pano_id,
+                "sid": strip_panoid(self.pano_id, BAIDU_PREFIX),
                 "pos": str(y) + '_' + str(x),
                 "z": 5
             }
-        elif len(self.pano_id) == 23:
+        elif "TENCENT:" == str(self.pano_id)[0:8]:
             TILE_URL = TENCENT_PANO_URL
             params = {
-                "svid": self.pano_id,
+                "svid": strip_panoid(self.pano_id, TENCENT_PREFIX),
                 "x": x,
                 "y": y,
                 "level": 2 if self.dimensions[1] == 7168 else 1,
                 "from": "web"
             }
-        elif len(self.pano_id) == 34:
+        elif "YANDEX:" == str(self.pano_id)[0:7]:
             TILE_URL = f"{YANDEX_PANO_URL}/{self.image_key}/{self.zoom}.{x}.{y}"
             params = None
+
         else:
             TILE_URL = GSV_PANO_URL
             params = {
@@ -162,8 +288,7 @@ class Pano:
                 return None
 
     async def _fetch_and_build_panorama(self):
-
-        if self.dimensions[1] == 8192:  # google Gen 4, qq, baidu
+        if self.dimensions[1] == 8192:  # google Gen 4, qq, baidu, kakao
             max_x, max_y = 16, 8
         elif self.dimensions[1] == 6656:  # Gen 3
             max_x, max_y = 13, 6.5
@@ -174,7 +299,7 @@ class Pano:
         else:  # Fallback
             max_x, max_y = 7, 4
 
-        if len(self.pano_id) == 34:
+        if "YANDEX:" == str(self.pano_id)[0:7]:
             max_x, max_y = math.ceil(self.dimensions[1] / 256), math.ceil(self.dimensions[0] / 256)
             # if self.dimensions[0] == 2560:
             #     max_x, max_y = 28, 10
@@ -182,11 +307,12 @@ class Pano:
             #     max_x, max_y = 28, 14
             # if self.dimensions[1] == 6912:
             #     max_x, max_y = 27, 14
+
         async with aiohttp.ClientSession() as session:
             # Get tiles based on determined dimensions
             raw_tiles = await asyncio.gather(
                 *[self.fetch_single_tile(session, x, y)
-                  for y in range(int(max_y) if max_y in [2, 4, 8, 10, 14] else 7)  # Handle Gen 3's 6.5
+                  for y in range(int(max_y) if max_y != 6.5 else 7)  # Handle Gen 3's 6.5
                   for x in range(max_x)]
             )
 
@@ -217,7 +343,7 @@ class Pano:
         # 根据 dimensions 和 pano_id 设置 tile 尺寸
         dimensions_map = {5760: (720, 720), 7168: (896, 896)}
         tile_width, tile_height = dimensions_map.get(self.dimensions[1], (512, 512))
-        if len(self.pano_id) == 34:
+        if "YANDEX:" == str(self.pano_id)[0:7]:
             tile_width, tile_height = 256, 256
 
         # 检查是否是半高模式
@@ -230,7 +356,7 @@ class Pano:
 
         total_width = int(max_x * tile_width)
 
-        if len(self.pano_id) == 34:
+        if "YANDEX:" == str(self.pano_id)[0:7]:
             if self.zoom == 1:
                 total_height = 3584
             else:
@@ -270,11 +396,42 @@ class Pano:
                 except Exception as e:
                     logging.error(f"Error getting panoid: {e}")
 
-    async def get_pano_metadata_yd(self, lat, lng, panoId=None):
-        endpoint = 'sta' if panoId == "air" else 'stv'
+    async def get_pano_metadata_apple(self):
+        async with aiohttp.ClientSession() as session:
+            try:
+                apple_pano = await get_apple_coverage_tile(self.lat, self.lng, session)
+                if not apple_pano:
+                    logging.error("Error getting apple metadata.")
+                    return None
+                else:
+                    return apple_pano
+
+            except Exception as error:
+                logging.error(f"Error fetching apple metadata: {error}")
+                return None
+
+    async def get_pano_metadata_bing(self):
+        url = f"https://t.ssl.ak.tiles.virtualearth.net/tiles/cmd/StreetSideBubbleMetaData?id={strip_panoid(self.pano_id, BING_PREFIX)}"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                try:
+                    if resp.status == 200:
+                        text = await resp.text()
+                        parsed = json.loads(text)
+                        self.driving_direction = parsed[1].get("he")
+                    else:
+                        logging.error("Error getting bing metadata.")
+                        return None
+
+                except Exception:
+                    logging.error(f"Error fetching bing metadata")
+                    return None
+
+    async def get_pano_metadata_yd(self, lat, lng):
+        endpoint = 'sta' if self.pano_id == "air" else 'stv'
         YANDEX_SEARCH_URL = f"https://api-maps.yandex.com/services/panoramas/1.x/?l={endpoint}&lang=en_US&origin=userAction&provider=streetview"
-        url = f"{YANDEX_SEARCH_URL}&ll={lng}%2C{lat}" if len(
-            panoId) != 34 else f"{YANDEX_SEARCH_URL}&oid={strip_yandex(panoId)}"
+        url = f"{YANDEX_SEARCH_URL}&ll={lng}%2C{lat}" if self.pano_id == 'yandex' else f"{YANDEX_SEARCH_URL}&oid={strip_panoid(self.pano_id, YANDEX_PREFIX)}"
+
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as response:
                 try:
@@ -287,9 +444,10 @@ class Pano:
                         else:
                             self.dimensions = [tiles_size[0]['height'], tiles_size[0]['width']]
                             self.zoom = 0
-                        self.pano_id = data['data']['Data']['panoramaId']
+                        self.pano_id = f"YANDEX:{data['data']['Data']['panoramaId']}"
                         self.image_key = data['data']['Data']['Images']['imageId']
-                        self.driving_direction = data['data']['Data']['EquirectangularProjection']['Origin'][0]
+                        self.driving_direction = (data['data']['Data']['EquirectangularProjection']['Origin'][
+                                                      0] + 180) % 360
                         return
                     else:
                         logging.error("Error fetching imageKey: Data format invalid.")
@@ -297,6 +455,29 @@ class Pano:
 
                 except Exception as error:
                     logging.error(f"Error fetching imageKey: {str(error)}")
+                    return None
+
+    async def get_pano_metadata_kk(self):
+
+        KAKAO_METADATA_URL = "https://rv.map.kakao.com/roadview-search/v2/node"
+        KAKAO_SEARCH_URL = "https://rv.map.kakao.com/roadview-search/v2/nodes?TYPE=w&SERVICE=glpano"
+
+        url = f"{KAKAO_METADATA_URL}/{strip_panoid(self.pano_id, KAKAO_PREFIX)}?SERVICE=glpano"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                try:
+                    data = await response.json()
+                    if data and 'street_view' in data and 'street' in data['street_view']:
+                        kakao = data['street_view']['street']
+                        self.driving_direction = float(kakao['angle'])
+                        self.image_key = kakao['img_path']
+                        return
+                    else:
+                        logging.error("Error fetching imagePath: Data format invalid.")
+                        return None
+
+                except Exception as error:
+                    logging.error(f"Error fetching imagePath: {str(error)}")
                     return None
 
     async def get_pano_metadata(self, retry_count=0, max_retries=3):
@@ -342,7 +523,7 @@ class Pano:
                     return None
 
     async def get_pano_metadata_bd(self):
-        url = f'https://mapsv0.bdimg.com/?qt=sdata&sid={self.pano_id}'
+        url = f'https://mapsv0.bdimg.com/?qt=sdata&sid={strip_panoid(self.pano_id, BAIDU_PREFIX)}'
         async with aiohttp.ClientSession() as session:
             try:
                 async with session.get(url) as response:
@@ -361,7 +542,7 @@ class Pano:
                 return None
 
     async def get_pano_metadata_qq(self):
-        url = f'https://sv.map.qq.com/sv?svid={self.pano_id}&output=jsonp'
+        url = f'https://sv.map.qq.com/sv?svid={strip_panoid(self.pano_id, TENCENT_PREFIX)}&output=jsonp'
         async with aiohttp.ClientSession() as session:
             try:
                 async with session.get(url) as response:
@@ -441,6 +622,95 @@ class Pano:
         except Exception as e:
             logging.error(f"Error adding compass overlay: {e}")
 
+    @staticmethod
+    def to_base4(n: int) -> str:
+        """
+        Converts an integer to a base 4 string.
+
+        :param n: The integer.
+        :return: The base 4 representation of the integer.
+        """
+        return np.base_repr(n, 4)
+
+    @staticmethod
+    def quadtree_position_to_xy(position: str, width: int = 8) -> tuple[int, int]:
+        """将四进制字符串 position 转换为 (x, y) 坐标"""
+        x = 0
+        y = 0
+        for j, ch in enumerate(position):
+            delta = width / (2 ** (j + 1))
+            if ch == "1":
+                x += delta
+            elif ch == "2":
+                y += delta
+            elif ch == "3":
+                x += delta
+                y += delta
+        return int(x), int(y)
+
+    async def fetch_bing_streetside_tiles(self, pano_id, ZOOM=3):
+        id4 = self.to_base4(int(pano_id)).rjust(16, "0")
+        WIDTH = 2 ** ZOOM  # 8
+        tiles = [[None for _ in range(WIDTH * WIDTH)] for _ in range(6)]  # 6 faces
+
+        semaphore = asyncio.Semaphore(128)
+
+        async def fetch_tile(session, face, position):
+            face4 = self.to_base4(face + 1).rjust(2, "0")
+            position4 = self.to_base4(position).rjust(ZOOM, "0")
+            url = f"https://t.ssl.ak.tiles.virtualearth.net/tiles/hs{id4}{face4}{position4}.jpg?g=13716"
+
+            try:
+                async with semaphore:
+                    async with session.get(url) as resp:
+                        if resp.status == 200:
+                            img_data = await resp.read()
+                            img = Image.open(io.BytesIO(img_data)).convert("RGB")
+                            return face, position, img
+                        else:
+                            return face, position, None
+            except Exception as e:
+                logging.error(f"Error downloading {url}: {e}")
+                return face, position, None
+
+        async with aiohttp.ClientSession() as session:
+            tasks = [
+                fetch_tile(session, face, position)
+                for face in range(6)
+                for position in range(WIDTH * WIDTH)
+            ]
+            results = await asyncio.gather(*tasks)
+
+        for face, position, img in results:
+            tiles[face][position] = img
+
+        return tiles
+
+    @staticmethod
+    def stitch_bing_streetside_face(tiles: list, width: int = 8, tile_size: int = 256) -> Image.Image:
+        """
+        拼接单个面的64张tile为一张大图，tiles为长度64的PIL.Image列表
+        """
+        face_img = Image.new("RGB", (width * tile_size, width * tile_size))
+        for idx, tile in enumerate(tiles):
+            if tile is None:
+                continue
+            pos_str = Pano.to_base4(idx).zfill(3)
+            x, y = Pano.quadtree_position_to_xy(pos_str, width)
+            face_img.paste(tile, (x * tile_size, y * tile_size))
+        return face_img
+
+    async def build_bing_streetside_panorama(self):
+        """
+        下载并拼接 Bing Streetside 全景图，返回equirectangular numpy数组
+        """
+        tiles = await self.fetch_bing_streetside_tiles(strip_panoid(self.pano_id, BING_PREFIX))
+        faces = [self.stitch_bing_streetside_face(face_tiles) for face_tiles in tiles]
+        cubemap_img = self.create_cubemap(faces)
+        # 转为equirectangular
+        equirectangular_array = c2e(np.array(cubemap_img), 2048, 4096)
+        return equirectangular_array
+
     def to_dict(self):
         """Return a JSON-serializable representation of the Pano"""
         return {
@@ -475,6 +745,7 @@ class Round:
         self.zoom = round_data['zoom']
         self.lat = round_data['lat']
         self.lng = round_data['lng']
+        self.country = None
         self.subdivision = None
         self.adm_2 = None
         self.locality = None
@@ -494,17 +765,17 @@ class Round:
         """
         url = "https://api.bigdatacloud.net/data/reverse-geocode"
         language = "en"
-        if self.pano.pano_id:
-            if len(self.pano.pano_id) in [23, 27]:
-                language = "zh-Hans"
+        # if self.pano.pano_id:
+        #     if "BAIDU:" in str(self.pano.pano_id) or "TENCENT:" in str(self.pano.pano_id):
+        #         language = "zh-Hans"
         params = {
             "latitude": lat,
             "longitude": lng,
             "localityLanguage": language,
-            "key": os.environ.get("BIGDATACLOUD_API_KEY")
+            "key": BIGDATACLOUD_API_KEY
         }
 
-        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_context)) as session:
+        async with aiohttp.ClientSession() as session:
             async with session.get(url, params=params) as response:
                 logging.debug(f"Reverse geocoding status: {response.status}")
                 if response.status == 403:
@@ -516,6 +787,7 @@ class Round:
 
                 data = await response.json()
                 country = data.get("countryCode")
+                self.country = country
                 adm_1, adm_2 = None, None
 
                 if country == "ID":
@@ -525,16 +797,18 @@ class Round:
                                 adm_1 = admin.get("isoCode", "Unknown")[3:]
                             else:
                                 adm_1 = admin.get("name")
-                elif country in ["MO", "HK"]:
+                elif country in ["MO", "HK", "CX", "CC"]:
                     adm_1 = data.get("countryCode") if mode == 'state' else data.get("countryName")
                 else:
                     adm_1 = data.get('principalSubdivisionCode', '')
                     if not adm_1:
                         for admin in data.get("localityInfo", {}).get("administrative", []):
+                            if country in ['VN', 'AU', 'ES', 'KZ'] and admin.get("adminLevel") == 4:
+                                adm_1 = admin.get("name")
                             if admin.get("isoCode") and country in admin.get("isoCode"):
                                 if admin.get("adminLevel") == 4:
                                     adm_1 = admin.get("isoCode", "Unknown")[3:]
-                                elif data.get('countryCode') == 'PH' and admin.get("adminLevel") == 3:
+                                elif country == 'PH' and admin.get("adminLevel") == 3:
                                     adm_1 = admin.get("name", "Unknown")
                         if country == 'AR' and data.get('city'):
                             adm_1 = data.get('city')
@@ -542,26 +816,28 @@ class Round:
                         adm_1 = data.get('principalSubdivision')
                     else:
                         if adm_1 == 'KP-03':
-                            adm_1 = '辽宁'
+                            adm_1 = 'Liaoning'
                         elif adm_1 == 'KP-09':
-                            adm_1 = '吉林'
+                            adm_1 = 'Jilin'
                         else:
                             adm_1 = adm_1[3:]
-                # Handle administrative level 5 (county or district)
+
                 for admin in data.get("localityInfo", {}).get("administrative", []):
                     if admin.get("adminLevel") == 5:
                         adm_2 = admin.get("name")
                         if country == "CN" and adm_2:
                             self.pool.extend([
+                                "".join(adm_2),
+                                "".join(adm_2[:-1])])
+                            """self.pool.extend([
                                 "".join(lazy_pinyin(adm_2)),
-                                "".join(lazy_pinyin(adm_2[:-1]))])
+                                "".join(lazy_pinyin(adm_2[:-1]))])"""
 
                 # Return appropriate values based on mode
                 return (adm_1, adm_2, data.get('locality')) if mode == 'state' else (
                     country, adm_1, data.get('locality'))
 
     async def set_subdivision(self, round_data, mode=None):
-
         self.subdivision, self.adm_2, self.locality = await self.get_location_info(
             round_data.get('lat'),
             round_data.get('lng'),
@@ -569,10 +845,12 @@ class Round:
 
         self.pool.extend(filter(None, [self.subdivision and self.subdivision.lower(),
                                        self.locality and self.locality.lower(),
-                                       self.locality and "".join(lazy_pinyin(self.locality)),
-                                       self.locality and "".join(lazy_pinyin(self.locality[0:-1])),
+                                       # self.locality and self.country == 'CN' and "".join(lazy_pinyin(self.locality)),
+                                       # self.locality and self.country == 'CN' and "".join(
+                                       #     lazy_pinyin(self.locality[0:-1])),
                                        self.adm_2 and self.adm_2.lower()]))
         logging.info(self.pool)
+
         return self.subdivision, self.adm_2, self.locality
 
     @staticmethod
@@ -632,17 +910,21 @@ class Round:
 
     @property
     def link(self):
-        if len(self.pano.pano_id) == 27:
-            return f"https://map.baidu.com/?newmap=1&shareurl=1&panoid={self.pano.pano_id}&panotype=street&heading={self.heading}&pitch={self.pitch}&l=21&tn=B_NORMAL_MAP&sc=0&newmap=1&shareurl=1&pid={self.pano.pano_id}"
-
-        elif len(self.pano.pano_id) == 36:
-            return f"https://vn-map.netlify.app/#zoom=19&center={self.lat}%2C{self.lng}&pano={self.pano.pano_id}&ppos={self.lat}%2C{self.lng}&heading={self.heading}&pitch=0&svz=0"
-
-        elif len(self.pano.pano_id) == 23:
-            return f"https://qq-map.netlify.app/#base=roadmap&zoom=18&center={self.lat}%2C{self.lng}&pano={self.pano.pano_id}&heading={self.pano.driving_direction or 0}&pitch=0&svz=0"
-
-        elif len(self.pano.pano_id) == 34:
-            return f"https://yandex.com/maps/?l=stv%2Csta&ll={self.lng}%2C{self.lat}&panorama%5Bdirection%5D={self.pano.driving_direction or self.heading}%2C0&panorama%5Bfull%5D=true&panorama%5Bid%5D={self.pano.pano_id}&panorama%5Bpoint%5D={self.lng}%2C{self.lat}"
+        if "APPLE:" == str(self.pano.pano_id)[0:6]:
+            return (f"https://lookmap.eu.pythonanywhere.com/#c=12/{self.pano.apple_pano.lat}/{self.pano.apple_pano.lon}"
+                    f"&p={self.pano.apple_pano.lat}/{self.pano.apple_pano.lon}&a={self.pano.driving_direction}/0")
+        elif "BING:" == str(self.pano.pano_id)[0:5]:
+            return f"https://www.bing.com/maps/?cp={self.lat}%7E{self.lng}&dir={self.pano.driving_direction}&pi={self.pitch}&style=x&lvl=9.0"
+        elif "BAIDU:" == str(self.pano.pano_id)[0:6]:
+            return f"https://map.baidu.com/?newmap=1&shareurl=1&panoid={strip_panoid(self.pano.pano_id, BAIDU_PREFIX)}&panotype=street&heading={self.heading}&pitch={self.pitch}&l=21&tn=B_NORMAL_MAP&sc=0&newmap=1&shareurl=1&pid={strip_panoid(self.pano.pano_id, BAIDU_PREFIX)}"
+        elif "OPENMAP:" == str(self.pano.pano_id)[0:8]:
+            return f"https://vn-map.netlify.app/#zoom=19&center={self.lat}%2C{self.lng}&pano={strip_panoid(self.pano.pano_id, OPENMAP_PREFIX)}&ppos={self.lat}%2C{self.lng}&heading={self.heading}&pitch=0&svz=0"
+        elif "TENCENT:" == str(self.pano.pano_id)[0:8]:
+            return f"https://qq-map.netlify.app/#base=roadmap&zoom=18&center={self.lat}%2C{self.lng}&pano={strip_panoid(self.pano.pano_id, TENCENT_PREFIX)}&heading={self.pano.driving_direction or 0}&pitch=0&svz=0"
+        elif "YANDEX:" == str(self.pano.pano_id)[0:7]:
+            return f"https://yandex.com/maps/?l=stv%2Csta&ll={self.lng}%2C{self.lat}&panorama%5Bdirection%5D={self.pano.driving_direction or self.heading}%2C0&panorama%5Bfull%5D=true&panorama%5Bid%5D={strip_panoid(self.pano.pano_id, YANDEX_PREFIX)}&panorama%5Bpoint%5D={self.lng}%2C{self.lat}"
+        elif 'KAKAO:' == str(self.pano.pano_id)[0:6]:
+            return f"https://map.kakao.com/?map_type=TYPE_MAP&map_attribute=ROADVIEW&panoid={strip_panoid(self.pano.pano_id, KAKAO_PREFIX)}&pan={self.heading}"
 
         return f"https://www.google.com/maps/@?api=1&map_action=pano&pano={self.pano.pano_id}&heading={self.heading}&pitch={self.pitch}"
 
@@ -724,36 +1006,38 @@ class GameManager:
             conn.execute("""
                 CREATE VIEW IF NOT EXISTS player_stats AS
                 WITH streak_counts AS (
-                    -- Count participants for each streak
                     SELECT 
                         streak_id,
-                        COUNT(*) as participant_count
+                        COUNT(*) AS participant_count
                     FROM streak_participants
                     GROUP BY streak_id
                 ),
                 streak_stats AS (
-                    -- Get highest solo and assisted streaks for each player
                     SELECT 
                         sp.user_id,
-                        MAX(CASE WHEN sc.participant_count = 1 THEN s.number ELSE 0 END) as best_solo_streak,
-                        MAX(CASE WHEN sc.participant_count > 1 THEN s.number ELSE 0 END) as best_assisted_streak,
-                        AVG(CASE WHEN sc.participant_count = 1 THEN s.number ELSE 0 END) as avg_solo_streak
+                        r.map,
+                        MAX(CASE WHEN sc.participant_count = 1 THEN s.number ELSE 0 END) AS best_solo_streak,
+                        MAX(CASE WHEN sc.participant_count > 1 THEN s.number ELSE 0 END) AS best_assisted_streak,
+                        AVG(CASE WHEN sc.participant_count = 1 THEN s.number ELSE NULL END) AS avg_solo_streak
                     FROM streak_participants sp
                     JOIN streaks s ON sp.streak_id = s.id
                     JOIN streak_counts sc ON s.id = sc.streak_id
-                    GROUP BY sp.user_id
+                    JOIN rounds r ON r.user_id = sp.user_id AND r.streak_id = sp.streak_id
+                    GROUP BY sp.user_id, r.map
                 )
                 SELECT 
                     r.user_id,
-                    COUNT(*) as total_guesses,
-                    SUM(CASE WHEN r.is_correct THEN 1 ELSE 0 END) as correct_guesses,
-                    ROUND(AVG(CASE WHEN r.is_correct THEN 100.0 ELSE 0 END), 1) as accuracy,
-                    COALESCE(ss.best_solo_streak, 0) as best_solo_streak,
-                    COALESCE(ss.best_assisted_streak, 0) as best_assisted_streak,
-                    ROUND(COALESCE(ss.avg_solo_streak, 0), 2) as avg_solo_streak
+                    r.map,
+                    COUNT(*) AS total_guesses,
+                    SUM(CASE WHEN r.is_correct THEN 1 ELSE 0 END) AS correct_guesses,
+                    ROUND(AVG(CASE WHEN r.is_correct THEN 100.0 ELSE 0 END), 1) AS accuracy,
+                    COALESCE(ss.best_solo_streak, 0) AS best_solo_streak,
+                    COALESCE(ss.best_assisted_streak, 0) AS best_assisted_streak,
+                    ROUND(COALESCE(ss.avg_solo_streak, 0), 2) AS avg_solo_streak
                 FROM rounds r
-                LEFT JOIN streak_stats ss ON r.user_id = ss.user_id
-                GROUP BY r.user_id;
+                LEFT JOIN streak_stats ss
+                    ON r.user_id = ss.user_id AND r.map = ss.map
+                GROUP BY r.user_id, r.map;
             """)
 
             conn.execute("""
@@ -761,31 +1045,33 @@ class GameManager:
                 WITH player_location_stats AS (
                     SELECT 
                         user_id,
+                        map,
                         actual_location,
-                        COUNT(*) as times_seen,
-                        SUM(CASE WHEN is_correct THEN 1 ELSE 0 END) as times_correct,
-                        ROUND(AVG(CASE WHEN is_correct THEN 100.0 ELSE 0 END), 1) as accuracy_rate,
-                        MAX(timestamp) as last_seen
+                        COUNT(*) AS times_seen,
+                        SUM(CASE WHEN is_correct THEN 1 ELSE 0 END) AS times_correct,
+                        ROUND(AVG(CASE WHEN is_correct THEN 100.0 ELSE 0 END), 1) AS accuracy_rate,
+                        MAX(timestamp) AS last_seen
                     FROM rounds
-                    GROUP BY user_id, actual_location
+                    GROUP BY user_id, map, actual_location
                 )
                 SELECT 
                     user_id,
+                    map,
                     actual_location,
                     times_seen,
                     times_correct,
                     accuracy_rate,
                     last_seen,
                     RANK() OVER (
-                        PARTITION BY user_id 
+                        PARTITION BY user_id, map
                         ORDER BY accuracy_rate ASC, times_seen DESC
-                    ) as hardest_rank,
+                    ) AS hardest_rank,
                     RANK() OVER (
-                        PARTITION BY user_id 
+                        PARTITION BY user_id, map
                         ORDER BY accuracy_rate DESC, times_seen DESC
-                    ) as easiest_rank
+                    ) AS easiest_rank
                 FROM player_location_stats
-                WHERE times_seen >= 3
+                WHERE times_seen >= 3;
             """)
 
             conn.execute("""
