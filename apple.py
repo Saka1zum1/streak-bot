@@ -240,19 +240,19 @@ def get_rotation_matrix(yaw, pitch, roll):
 
 
 def equirectangular_rotate(img: Image.Image, yaw, pitch, roll):
-    img_np = np.asarray(img).astype(np.float32)
+    img_np = np.asarray(img).astype(np.float64)
     H, W = img_np.shape[:2]
 
-    x, y = np.meshgrid(np.arange(W, dtype=np.float32), np.arange(H, dtype=np.float32))
+    x, y = np.meshgrid(np.arange(W, dtype=np.float64), np.arange(H, dtype=np.float64))
     theta = (x / W) * 2 * math.pi - math.pi
     phi = (y / H) * math.pi - (math.pi / 2)
 
     vx = np.cos(phi) * np.sin(theta)
     vy = np.sin(phi)
     vz = np.cos(phi) * np.cos(theta)
-    vectors = np.stack([vx, vy, vz], axis=-1).reshape(-1, 3).astype(np.float32)
+    vectors = np.stack([vx, vy, vz], axis=-1).reshape(-1, 3)
 
-    R = get_rotation_matrix(yaw, pitch, roll).astype(np.float32)
+    R = get_rotation_matrix(yaw, pitch, roll)
     vectors_rot = vectors @ R.T
     vx_r, vy_r, vz_r = vectors_rot[:, 0], vectors_rot[:, 1], vectors_rot[:, 2]
 
@@ -265,11 +265,21 @@ def equirectangular_rotate(img: Image.Image, yaw, pitch, roll):
     map_x = np.clip(map_x, 0, W - 1)
     map_y = np.clip(map_y, 0, H - 1)
 
-    output = np.zeros_like(img_np, dtype=np.uint8)
+    map_x = map_x.astype(np.float64)
+    map_y = map_y.astype(np.float64)
+
+    output = np.zeros((H, W, img_np.shape[2]), dtype=np.uint8)
+
     for c in range(img_np.shape[2]):
-        channel = img_np[..., c]
-        sampled = map_coordinates(channel, [map_y, map_x], order=1, mode='wrap')
-        output[..., c] = sampled.reshape(H * W).astype(np.uint8).reshape(H, W)
+        channel = img_np[..., c].astype(np.float64, copy=False)
+
+        sampled = map_coordinates(
+            channel,
+            [map_y.flatten(), map_x.flatten()],
+            order=1,
+            mode='wrap'
+        )
+        output[..., c] = sampled.reshape(H, W).astype(np.uint8)
 
     del img_np, vectors, vectors_rot, vx_r, vy_r, vz_r, map_x, map_y
     gc.collect()
